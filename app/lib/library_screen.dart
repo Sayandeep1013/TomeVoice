@@ -26,6 +26,7 @@ import 'secret_shelf.dart';
 import 'settings_screen.dart';
 import 'shared_text.dart';
 import 'speech_service.dart';
+import 'scene.dart' show Scene, SketchDiscPainter, SketchFillPainter;
 import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
@@ -215,9 +216,16 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     }
   }
 
+  /// A scan just added, from its snack's Read with OCR.
+  Future<void> _offerOcrFor(OcrOffer offer) async {
+    final e = (await _store.index()).entries.where((e) => e.id == offer.bookId).firstOrNull;
+    if (e != null && mounted) await askForOcr(context, _store, e);
+  }
+
   /// The dock's Play: the book reads aloud from where it was left, and the
-  /// shelf stays.
+  /// shelf stays. A scan not read yet has nothing to say: OCR is offered.
   Future<void> _playHere(LibraryEntry e) async {
+    if (e.scan) return askForOcr(context, _store, e);
     try {
       await BackgroundReading.startFrom(_store, e);
     } on Object catch (err) {
@@ -480,12 +488,32 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     } else if (imported.length > 1) {
       _snack('Added ${imported.length} books.');
     }
+    // A scan refused outright (no book of it on the shelf) is offered OCR
+    // now. One on the shelf opens as its pages: OCR waits until it is
+    // wanted (Listen, or its page), and is only said here.
     for (final scan in scans) {
+      if (scan.imported) continue;
       if (mounted && await offerOcr(context, _store, scan)) {
         _snack('Reading “${scan.title}” with OCR. It goes on with the screen off; the shelf shows how far.', long: true);
       } else if (!mounted) {
         await declineOcr(scan);
       }
+    }
+    final onShelf = [for (final s in scans) if (s.imported) s];
+    if (onShelf.isNotEmpty && failures.isEmpty && mounted) {
+      final one = onShelf.length == 1 ? onShelf.single : null;
+      showSnack(
+        context,
+        one == null
+            ? '${onShelf.length} of these are scanned pages: they open as they are. To listen, read them with OCR.'
+            : one.scan
+                ? '“${one.title}” is scanned pages: it opens as they are. To listen to it, read it with OCR.'
+                : 'Most pages of “${one.title}” are pictures: only its pages with text read aloud. OCR can read the rest.',
+        long: true,
+        lift: 84,
+        actionLabel: one != null ? 'Read with OCR' : null,
+        onAction: one == null ? null : () => unawaited(_offerOcrFor(one)),
+      );
     }
     if (openAfter && imported.length == 1 && mounted) await _showBook(imported.single);
   }
@@ -1561,8 +1589,11 @@ class _CategoryTabsState extends State<_CategoryTabs> {
           borderRadius: BorderRadius.circular(Radii.pill),
           onTap: () => widget.onPick(i),
           onLongPress: widget.onManage,
-
-          child: Padding(
+          // On the board, the chosen shelf scribbled in with chalk once it
+          // has slid into place: not drawn anew at every frame of the slide.
+          child: CustomPaint(
+            painter: t >= 0.99 && Skin.sceneOf(context) == Scene.sketch ? SketchFillPainter(Skin.amber) : null,
+            child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: Gap.s),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -1598,6 +1629,7 @@ class _CategoryTabsState extends State<_CategoryTabs> {
                 ),
               ],
             ),
+          ),
           ),
         ),
       ),
@@ -1774,19 +1806,26 @@ class _ContinueDockState extends State<ContinueDock> {
                       child: InkWell(
                         customBorder: const CircleBorder(),
                         onTap: () => live == null ? widget.onPlay(e) : unawaited(live.toggle()),
-                        child: SizedBox(
+                        // On the board, a painted disc, as the reader's.
+                        child: CustomPaint(
+                          foregroundPainter: Skin.sceneOf(context) == Scene.sketch
+                              ? SketchDiscPainter(Skin.accentOf(context))
+                              : null,
+                          child: SizedBox(
                           width: 52,
                           height: 52,
                           child: AnimatedSwitcher(
                             duration: Motion.of(context, Motion.quick),
                             transitionBuilder: (child, a) => ScaleTransition(scale: a, child: child),
-                            child: Icon(
+                            child: Skin.icon(
+                              context,
                               live != null && playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
                               key: ValueKey(live != null && playing),
                               size: 32,
                               color: Skin.onAccentOf(context),
                             ),
                           ),
+                        ),
                         ),
                       ),
                     ),

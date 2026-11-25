@@ -114,9 +114,10 @@ Not there yet: see [Not built yet](#not-built-yet).
 - **Replace the file.** Pick a corrected edition from a book's menu and it takes the
   book's place: your place, quotes, bookmarks, journal, voices, rules and shelf go with
   it, found again by their sentences.
-- **Scanned PDFs, read by OCR.** A PDF of page images is read on the phone (Tesseract),
-  in the languages you choose (Bengali, Hindi and English are one tap away). The
-  language data is downloaded only when you use it, and pages are read once and kept.
+- **Scanned PDFs, read by OCR.** A scanned PDF opens at once as its pages; to listen,
+  its pages are read on the phone (Tesseract), several at a time, in the languages you
+  choose (Bengali, Hindi and English are one tap away). The language data is downloaded
+  only when you use it, and pages are read once and kept.
 - **Reads anything you share.** Share a link from your browser and TomeVoice reads the
   article, without its menus, ads or comments; share words from any app, or paste a link
   or text. A link to a book file downloads and imports it.
@@ -279,6 +280,9 @@ Not there yet: see [Not built yet](#not-built-yet).
   designer themes (Library, Matcha, Rosewater, Slate, Dune, Midnight Ink, Plum and
   Maple); your own colours (kept readable), or your wallpaper's on Android 12 and later. Text meets the
   WCAG AA contrast standard in every one. A short guide shows the way on a new install.
+- **Scene themes:** a place behind every screen, the page you read left plain:
+  Enchanted forest, Silver witch, Space · solar, Dungeon, and Sketch · chalk (drawn by
+  hand: chalk on a grainy slate, the player's buttons painted in chalk).
 - **Gives you the voice controls readers don't:** speed (for every book, or this one
   only), pitch, the gap between words, and pauses at commas, sentences and paragraphs.
 

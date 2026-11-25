@@ -2,6 +2,7 @@ package app.tomevoice.tomevoice_spike
 
 import android.Manifest
 import android.app.Activity
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -24,6 +25,7 @@ import android.os.PowerManager
 import android.os.Process
 import com.googlecode.tesseract.android.TessBaseAPI
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -33,10 +35,13 @@ import kotlin.math.sqrt
  *
  * Each page is drawn by Android's PdfRenderer at about 300 dpi, made grey and
  * read by Tesseract (Tesseract4Android, Apache-2.0) in the languages asked
- * for, from the data the app downloaded into files/ocr/tessdata. One page at
- * a time, with one engine, on one thread at background priority: the page
- * drawn is let go before it is read, and a book read aloud meanwhile keeps
- * its voice.
+ * for, from the data the app downloaded into files/ocr/tessdata. Several
+ * pages at a time on a phone with the cores and the memory for it (see
+ * [engines]), each on its own thread with its own engine, at background
+ * priority so a book read aloud meanwhile keeps its voice. Pages are drawn
+ * one at a time (PdfRenderer opens one page at once), and each is let go
+ * before it is read. One engine on one thread read a 300-page Bengali scan
+ * in over an hour on a fast phone.
  *
  * A foreground service (dataSync: a file read in on the phone), with the page
  * it is on and Stop in its notification, so a 300-page scan goes on with the
@@ -45,7 +50,8 @@ import kotlin.math.sqrt
  * goes on from the first page without one. Scans asked for while one is read
  * wait their turn.
  *
- * Stop takes effect between pages, never in the middle of one: Tesseract's
+ * Stop takes effect between pages, never in the middle of one (each engine
+ * ends the page it is on): Tesseract's
  * own stop() races the progress callback it shares with the recognition (a
  * crash in native code), and a page takes seconds.
  */
@@ -83,6 +89,9 @@ class OcrService : Service() {
          * tall is drawn smaller rather than run a 3 GB phone out of memory.
          */
         private const val MAX_PIXELS = 9_000_000.0
+
+        /** No more engines than this, however many cores: each holds its page. */
+        private const val MAX_ENGINES = 4
 
         /** The CPU is kept awake while pages are read; renewed every page. */
         private const val AWAKE_MS = 10 * 60 * 1000L
@@ -299,6 +308,28 @@ class OcrService : Service() {
         stopSelf(lastStart)
     }
 
+    /**
+     * How many pages are read at once: half the cores, two left for the app
+     * and its voice, one at least; fewer where memory is short (each engine
+     * holds a page of up to 9 MB and its own working copies). A phone Android
+     * calls low on memory reads one at a time, as before.
+     */
+    private fun engines(pages: Int): Int {
+        val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        if (am.isLowRamDevice) return 1
+        val mem = ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
+        val gb = mem.totalMem / (1024.0 * 1024 * 1024)
+        val byMemory = when {
+            gb < 3.5 -> 1
+            gb < 5.5 -> 2
+            gb < 7.5 -> 3
+            else -> MAX_ENGINES
+        }
+        val cores = Runtime.getRuntime().availableProcessors()
+        val byCores = ((cores - 2) / 2).coerceAtLeast(1)
+        return minOf(byMemory, byCores, MAX_ENGINES, pages).coerceAtLeast(1)
+    }
+
     /** Read the pages of [job] that have no text file yet. */
     private fun read(job: Job): Outcome {
         val pagesDir = File(job.dir, "pages").apply { mkdirs() }
@@ -320,35 +351,87 @@ class OcrService : Service() {
             return Outcome("ocrFailed", "Android could not open this PDF to draw its pages.")
         }
         try {
-            val api = TessBaseAPI()
+            val next = AtomicInteger(0)
+            val count = engines(todo.size)
+            // The first way a reader ended other than by reading its pages
+            // to the end: what the scan's reading ended with.
+            var ended: Outcome? = null
+            val endLock = Any()
+            fun end(o: Outcome) = synchronized(endLock) { if (ended == null) ended = o }
+
+            val readers = (0 until count).map { n ->
+                Thread({
+                    Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+                    try {
+                        readPages(job, renderer, todo, next, pagesDir) { synchronized(endLock) { ended != null } }
+                            ?.let { end(it) }
+                    } catch (e: OutOfMemoryError) {
+                        end(Outcome("ocrFailed", "The phone ran out of memory on page ${done + 1}. Close other apps and go on."))
+                    } catch (e: Throwable) {
+                        end(Outcome("ocrFailed", e.message ?: e.javaClass.simpleName))
+                    }
+                }, "tomevoice-ocr-$n")
+            }
+            readers.forEach { it.start() }
+            readers.forEach { it.join() }
+            return ended ?: if (stopping) Outcome("ocrStopped") else Outcome("ocrDone")
+        } finally {
             try {
-                val ready = try {
-                    api.init(job.dataPath, job.languages)
-                } catch (e: IllegalArgumentException) {
-                    // No tessdata folder.
-                    false
-                }
-                if (!ready) {
-                    return Outcome(
-                        "ocrFailed",
-                        "The language data would not load. It is downloaded again when you go on.",
-                        data = true
-                    )
-                }
-                // The whole page, laid out as a book's is: columns, headings,
-                // pictures passed over. The engine's own default is one block.
-                api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
-                var grey: ByteArray? = null
-                for (index in todo) {
-                    if (stopping) return Outcome("ocrStopped")
-                    keepAwake(true)
-                    var text = ""
-                    // A page Android cannot draw (damaged, or too big for
-                    // the memory left even at half the size) is left without
-                    // text, as one the engine cannot read: the rest of the
-                    // book is still read, and Go on does not stop at it again.
-                    val page = if (index >= 0 && index < renderer.pageCount) {
-                        try {
+                renderer.close()
+            } catch (_: Exception) {
+            }
+            close(fd)
+        }
+    }
+
+    /**
+     * One engine's share of [todo]: the next page no reader has taken, until
+     * none is left, Stop, or [over] (another reader failed). Null when its
+     * share is read; otherwise why it stopped.
+     */
+    private fun readPages(
+        job: Job,
+        renderer: PdfRenderer,
+        todo: List<Int>,
+        next: AtomicInteger,
+        pagesDir: File,
+        over: () -> Boolean,
+    ): Outcome? {
+        val api = TessBaseAPI()
+        try {
+            val ready = try {
+                api.init(job.dataPath, job.languages)
+            } catch (e: IllegalArgumentException) {
+                // No tessdata folder.
+                false
+            }
+            if (!ready) {
+                return Outcome(
+                    "ocrFailed",
+                    "The language data would not load. It is downloaded again when you go on.",
+                    data = true
+                )
+            }
+            // The whole page, laid out as a book's is: columns, headings,
+            // pictures passed over. The engine's own default is one block.
+            api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
+            var grey: ByteArray? = null
+            while (true) {
+                if (stopping) return Outcome("ocrStopped")
+                if (over()) return null
+                val at = next.getAndIncrement()
+                if (at >= todo.size) return null
+                val index = todo[at]
+                keepAwake(true)
+                var text = ""
+                // A page Android cannot draw (damaged, or too big for the
+                // memory left even at half the size) is left without text, as
+                // one the engine cannot read: the rest of the book is still
+                // read, and Go on does not stop at it again. One page is
+                // drawn at a time: the renderer opens one page at once.
+                val page = if (index >= 0 && index < renderer.pageCount) {
+                    try {
+                        synchronized(renderer) {
                             try {
                                 draw(renderer, index, MAX_PIXELS, grey)
                             } catch (e: OutOfMemoryError) {
@@ -357,44 +440,37 @@ class OcrService : Service() {
                                 grey = null
                                 draw(renderer, index, MAX_PIXELS / 4, null)
                             }
-                        } catch (e: Throwable) {
-                            null
                         }
-                    } else {
+                    } catch (e: Throwable) {
                         null
                     }
-                    if (page != null) {
-                        grey = page.pixels
-                        try {
-                            // Raw pixels carry no resolution, and Tesseract
-                            // then takes them for 70 dpi: a 300 dpi page's
-                            // letters look four times their size to it. It is
-                            // told what the page was drawn at.
-                            api.setVariable("user_defined_dpi", page.dpi.toString())
-                            api.setImage(page.pixels, page.width, page.height, 1, page.width)
-                            text = api.getUTF8Text() ?: ""
-                        } catch (e: Throwable) {
-                            // A page the engine cannot read is left without
-                            // text; the rest of the book is still read.
-                            text = ""
-                        } finally {
-                            api.clear()
-                        }
-                    }
-                    save(pagesDir, index, text)
-                    done++
-                    progress(job)
+                } else {
+                    null
                 }
-                return Outcome("ocrDone")
-            } finally {
-                api.recycle()
+                if (page != null) {
+                    grey = page.pixels
+                    try {
+                        // Raw pixels carry no resolution, and Tesseract then
+                        // takes them for 70 dpi: a 300 dpi page's letters look
+                        // four times their size to it. It is told what the
+                        // page was drawn at.
+                        api.setVariable("user_defined_dpi", page.dpi.toString())
+                        api.setImage(page.pixels, page.width, page.height, 1, page.width)
+                        text = api.getUTF8Text() ?: ""
+                    } catch (e: Throwable) {
+                        // A page the engine cannot read is left without text;
+                        // the rest of the book is still read.
+                        text = ""
+                    } finally {
+                        api.clear()
+                    }
+                }
+                save(pagesDir, index, text)
+                synchronized(lock) { done++ }
+                progress(job)
             }
         } finally {
-            try {
-                renderer.close()
-            } catch (_: Exception) {
-            }
-            close(fd)
+            api.recycle()
         }
     }
 
@@ -457,6 +533,7 @@ class OcrService : Service() {
         }
     }
 
+    @Synchronized
     private fun progress(job: Job) {
         refresh()
         send(mapOf("type" to "ocrProgress", "job" to job.dir, "done" to done, "total" to total))
@@ -467,6 +544,7 @@ class OcrService : Service() {
      * would otherwise sleep between them. [AWAKE_MS] is a safety for a thread
      * that died holding it; every page renews it.
      */
+    @Synchronized
     private fun keepAwake(on: Boolean) {
         try {
             if (on) {

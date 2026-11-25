@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
 import 'motion.dart';
+import 'scene.dart' show Scene, SketchDiscPainter;
 import 'scheduler.dart';
 import 'slider_shapes.dart';
 import 'tap_log.dart';
@@ -83,7 +84,12 @@ class PlayButton extends StatelessWidget {
                     child: InkWell(
                       customBorder: const CircleBorder(),
                       onTap: tapAnswered(speaking ? 'Pause' : 'Play', onTap),
-                      child: SizedBox(
+                      // On the board, a painted disc: grain and a chalk rim.
+                      child: CustomPaint(
+                        foregroundPainter: Skin.sceneOf(context) == Scene.sketch
+                            ? SketchDiscPainter(Skin.accentOf(context))
+                            : null,
+                        child: SizedBox(
                         width: 54,
                         height: 54,
                         // Play and pause turn into each other: the new one
@@ -102,13 +108,15 @@ class PlayButton extends StatelessWidget {
                               ),
                             ),
                           ),
-                          child: Icon(
+                          child: Skin.icon(
+                            context,
                             speaking ? Icons.pause_rounded : Icons.play_arrow_rounded,
                             key: ValueKey(speaking),
                             size: 32,
                             color: Skin.onAccentOf(context),
                           ),
                         ),
+                      ),
                       ),
                     ),
                   ),

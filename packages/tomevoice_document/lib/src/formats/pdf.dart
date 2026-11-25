@@ -1328,3 +1328,70 @@ Book resectionPdf(Book book) {
   );
   return rebuilt;
 }
+
+/// The id every block of a [scanPagesBook] starts with: "scan-p12".
+const _scanBlock = 'scan-p';
+
+/// A scan nobody has read with OCR yet, as a book: its pages, each one line
+/// ("Page 12") anchored to it, cut into chapters at its bookmarks (not at a
+/// bookmark on every page, nor at those named after a picture). It is
+/// shown as its real pages; its place is a page. Nothing in it is to be read
+/// aloud: the app offers OCR instead, and once OCR has read it the book is
+/// made again from the text, its place carried by page (see [scanPageOf]).
+Book scanPagesBook({
+  required String id,
+  required int pages,
+  List<PdfOutlineEntry> outline = const [],
+  String? title,
+  String? author,
+  String? filename,
+}) {
+  final count = pages < 1 ? 1 : pages;
+  final usable = <int, String>{};
+  for (final o in outline) {
+    final t = _bookmarkTitle(collapseWhitespace(o.title));
+    if (o.page >= 0 && o.page < count && t != null && t.isNotEmpty) usable.putIfAbsent(o.page, () => t);
+  }
+  // A bookmark on (nearly) every page marks the pages, not chapters.
+  final starts = usable.length >= 2 && usable.length * 4 < count * 3 ? usable : const <int, String>{};
+  final sections = <DraftSection>[];
+  String? heading = starts[0];
+  var blocks = <Block>[];
+  for (var p = 0; p < count; p++) {
+    if (p > 0 && starts.containsKey(p)) {
+      sections.add((title: heading, blocks: blocks));
+      heading = starts[p];
+      blocks = <Block>[];
+    }
+    blocks.add(makeBlock(role: BlockRole.paragraph, text: 'Page ${p + 1}', anchor: PageAnchor(p), id: '$_scanBlock$p'));
+  }
+  sections.add((title: heading ?? (sections.isEmpty ? 'Pages' : null), blocks: blocks));
+  final named = title == null ? null : _bookmarkTitle(collapseWhitespace(title));
+  return assembleBook(
+    id: id,
+    metadata: BookMetadata(
+      title: named != null && named.isNotEmpty ? named : (titleFromFilename(filename) ?? 'Untitled PDF'),
+      authors: (author ?? '').trim().isEmpty ? const [] : [author!.trim()],
+    ),
+    sections: sections,
+    source: SourceKind.pdf,
+    filename: filename,
+  ).copyWith(wordCount: 0);
+}
+
+/// [book] is a [scanPagesBook]: a scan's pages, none read yet.
+bool isScanPagesBook(Book book) =>
+    book.sections.isNotEmpty &&
+    book.sections.first.blocks.isNotEmpty &&
+    book.sections.first.blocks.first.id.startsWith(_scanBlock);
+
+/// The page [cursor] is on in [book], when [book] is a [scanPagesBook];
+/// null for any other book.
+int? scanPageOf(Book book, ReadingCursor cursor) {
+  if (!isScanPagesBook(book)) return null;
+  final sections = book.sections;
+  final s = sections[cursor.sectionIndex.clamp(0, sections.length - 1)];
+  if (s.blocks.isEmpty) return null;
+  final b = s.blocks[cursor.blockIndex.clamp(0, s.blocks.length - 1)];
+  return int.tryParse(b.id.substring(_scanBlock.length));
+}

@@ -72,6 +72,14 @@ List<double> invertedPageMatrix({required Color paper, required Color ink}) {
 /// book's [CropPlan]: every cut page the same shape and scale, and a page
 /// whose print the cut cannot hold shown whole in its place. Nothing here is
 /// placed by where it lies on the page; what is goes through [ShownPage].
+/// A scan's page at night: its colours kept, its light turned down.
+const _dimmed = ColorFilter.matrix([
+  0.72, 0, 0, 0, 0, //
+  0, 0.72, 0, 0, 0,
+  0, 0, 0.72, 0, 0,
+  0, 0, 0, 1, 0,
+]);
+
 class PdfPagesView extends StatefulWidget {
   const PdfPagesView({
     super.key,
@@ -86,6 +94,7 @@ class PdfPagesView extends StatefulWidget {
     this.spread = false,
     this.tapToTurn = true,
     this.dark,
+    this.printed = false,
     this.onTurned,
     this.onTap,
     this.inset = EdgeInsets.zero,
@@ -118,6 +127,11 @@ class PdfPagesView extends StatefulWidget {
   /// (see [invertedPage]), so a white page is no lamp at night. Null keeps
   /// the page as it was printed.
   final ({Color paper, Color ink})? dark;
+
+  /// Pages that are photographs (a scan): on a dark page tone they are only
+  /// dimmed, as printed. Inverted, a scan's yellowed paper and its pictures
+  /// looked like a photograph's negative.
+  final bool printed;
 
   /// A page came to rest; [byHand] when the reader turned to it.
   final void Function(int page, {required bool byHand})? onTurned;
@@ -530,6 +544,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
   Widget _ink(Widget page) {
     final dark = widget.dark;
     if (dark == null) return page;
+    if (widget.printed) return ColorFiltered(colorFilter: _dimmed, child: page);
     return ColorFiltered(colorFilter: invertedPage(paper: dark.paper, ink: dark.ink), child: page);
   }
 

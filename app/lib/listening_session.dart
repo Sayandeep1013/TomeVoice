@@ -503,6 +503,8 @@ class BackgroundReading {
   /// library's player. A web novel's chapter there is fetched first if it
   /// is not on the phone.
   static Future<void> startFrom(LibraryStore store, LibraryEntry e) async {
+    // A scan not read with OCR has no words to say (see askForOcr).
+    if (e.scan) return;
     final playing = current.value;
     if (playing != null && playing.bookId == e.id) return playing.resume();
     final web = e.source == SourceKind.web;

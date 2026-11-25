@@ -37,6 +37,7 @@ import 'listen_sheet.dart';
 import 'marks.dart';
 import 'novel_move.dart' show chapterNumberOf;
 import 'neural_voices.dart';
+import 'ocr_sheet.dart' show askForOcr;
 import 'now_playing.dart';
 import 'own_fonts.dart';
 import 'page_light.dart';
@@ -174,6 +175,7 @@ class _BookLoaderState extends State<BookLoader> {
                     autoplay: widget.autoplay,
                     bookDir: widget.store.bookDir(widget.entry.id),
                     sourcePath: widget.entry.sourcePath,
+                    scanned: widget.entry.scan || widget.entry.ocr != null,
                   )
                 : _ReaderSkeleton(
                     title: widget.entry.title,
@@ -288,10 +290,15 @@ class ReaderScreen extends StatefulWidget {
     this.openContents,
     this.layouts,
     this.link,
+    this.scanned = false,
   });
 
   /// Lets the page holding this reader ask it to save its place.
   final ReaderLink? link;
+
+  /// A scanned PDF (its pages photographs of paper, read by OCR or not):
+  /// shown dark as printed, only dimmed, not inverted into a negative.
+  final bool scanned;
 
   final ReadingLayout layout;
 
@@ -484,7 +491,24 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   bool _programmaticScroll = false;
 
   bool get _isPdf => _book.source == SourceKind.pdf && widget.sourcePath != null;
-  bool get _showPages => _isPdf && _prefs.pdfPages;
+
+  /// A scan not read with OCR: only its real pages to show, nothing to say.
+  late final bool _scan = isScanPagesBook(widget.layout.book);
+  bool get _showPages => _isPdf && (_prefs.pdfPages || _scan);
+
+  /// Play on a scan not read yet: OCR offered, or how far it is.
+  Future<void> _askOcr() async {
+    final store = widget.store;
+    if (store == null) return;
+    final e = (await store.list(all: true)).where((e) => e.id == _book.id).firstOrNull;
+    if (e == null || !mounted) return;
+    // Read while this page was open: the words are in the book now.
+    if (!e.scan) {
+      showSnack(context, 'OCR has read its pages. Open the book again to listen to it.', long: true);
+      return;
+    }
+    await askForOcr(context, store, e);
+  }
 
   /// The page's brightness and warmth (see PageLight): moved by the sheet's
   /// sliders as they move, and taken from the prefs when they change.
@@ -511,6 +535,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       initialCursor: widget.initialCursor,
       store: widget.store,
       lookAt: widget.lookAt,
+      playInstead: isScanPagesBook(widget.layout.book) ? _askOcr : null,
     );
     widget.layouts?.addListener(_onLayouts);
     widget.link?._keep = _keepPlace;
@@ -682,6 +707,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// one, loading it would only push the narrator out); and where it keeps
   /// two and has room left, the first character's (see castVoiceToWarm).
   void _warmVoice() {
+    if (_scan) return;
     final listen = _listen;
     final narrator = neuralVoiceFor(listen.voiceName);
     final dialogue = neuralVoiceFor(listen.dialogueVoice);
@@ -1367,6 +1393,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     switch (picked) {
       case 'read':
         await _reader.goTo(unit, play: true);
+      case 'text' when _scan:
+        await _askOcr();
       case 'text':
         _auto.stop();
         setState(() => _prefs.pdfPages = false);
@@ -2086,7 +2114,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       cursor: voice?.player.unit ?? _cursor,
       player: voice?.player ?? _player,
       speed: _speed,
-      voiceLabel: _voiceLabel(),
+      // A scan not read has no voice yet: OCR is what it needs.
+      voiceLabel: _scan ? 'OCR to listen' : _voiceLabel(),
       sleepNote: voice == null ? _reader.sleepNote : null,
       onPlay: _reader.togglePlay,
       onPrevSentence: voice != null ? () => voice.moveTo(voice.unit - 1) : () => _reader.goTo(_cursor.value - 1),
@@ -2106,7 +2135,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       looking: voice == null ? _detached : null,
       viewChapter: voice == null ? _viewChapter : null,
       onSpeed: () => showListenSheet(context, _listen, focus: ListenFocus.speed),
-      onVoice: () => showListenSheet(context, _listen),
+      onVoice: _scan ? () => unawaited(_askOcr()) : () => showListenSheet(context, _listen),
       onExpand: voice != null ? () => _reader.follow() : _openNowPlaying,
       dock: rail,
       title: _book.metadata.title,
@@ -2357,6 +2386,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             spread: _pdfSpread,
             tapToTurn: _prefs.tapToTurn,
             dark: _style.pdfInk,
+            printed: widget.scanned,
             onTurned: _onPdfPage,
             inset: inset,
             onTap: _tapPdf,
@@ -2641,12 +2671,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   /// Talk is offered: the AI has a key, the book is in the library, and
-  /// not on a secret shelf (never sent).
+  /// not on a secret shelf (never sent), nor a scan OCR has not read (its
+  /// pages are pictures: there are no words to talk about).
   bool get _talkable {
     final store = widget.store;
     return store != null &&
         AiRing.instance.hasKeys &&
         !_l.isEmpty &&
+        !_scan &&
         MemoryService.instance.maySend(_book.id);
   }
 
@@ -3162,7 +3194,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         chapterNumber: _chapterNumber,
         positionOf: widget.positionOf,
         bookmarked: _bookmarkedHere,
-        realPages: _isPdf ? _showPages : null,
+        // A scan has only its pages: no text to turn them into yet.
+        realPages: _isPdf && !_scan ? _showPages : null,
         onRealPages: () {
           _auto.stop();
           setState(() => _prefs.pdfPages = !_prefs.pdfPages);

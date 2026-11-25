@@ -3,6 +3,25 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 2.7.0 (2026-11-25)
+
+Scanned books open at once, OCR reads them several times faster, and a new hand-drawn theme: Sketch · chalk.
+
+**Updating** keeps your library, your keys, every book's memory and your journal.
+
+#### Scanned PDFs
+- **A scanned PDF opens straight away**, as its real pages: zoom, turn, your place kept. Before, it went nowhere until OCR had read every page, which for a long Bengali or Hindi book took over an hour.
+- **OCR is asked for only when it is needed:** to listen. Listen and Play offer it; the book's page shows a *Scanned pages* row with how far it has got. Once its pages are read, the book reads aloud from the page you were on, and its page shows the new book by itself.
+- **OCR reads several pages at once** on a phone with the cores and memory for it (up to four; one on a phone short of memory). On an 8-core phone a 57-page Bengali scan was read in about 14 seconds.
+- **A scan's pages at night look as printed**, only dimmed. With a dark page tone, PDF pages are turned light-on-dark, which suits a typed PDF; a scan's yellowed paper and pictures came out looking like a photograph's negative.
+- **A scan not read yet offers nothing it cannot do:** no AI memory, Talk or Save as audio until its pages have words.
+
+#### Sketch · chalk
+- **A new scene theme, drawn by hand:** chalk on a grainy slate, every line drawn twice by an unsteady hand, chalk dust along it, wiped-off smudges on the board, a faint moon and stars at its edge. Dusty vermilion for what you press, warm ivory for the words, handwritten headings.
+- **The player's own drawings:** play, pause and skip are painted in chalk, and the play button is a painted red disc.
+- **The board's stars twinkle and boil** (redrawn by the hand a few times a second) and chalk dust drifts down; off with Settings > Appearance > Animations, as all motion is.
+- The page you read stays plain and clean.
+
 ## 2.6.6 (2026-11-25)
 
 Switching shelves is smooth: it drops less than half the frames it did.

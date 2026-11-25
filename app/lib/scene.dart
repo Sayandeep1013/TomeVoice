@@ -10,6 +10,8 @@ import 'package:flutter/services.dart' show rootBundle;
 
 import 'speech_service.dart';
 
+part 'scene_sketch.dart';
+
 /// Scene themes: a place, not a colour. Each draws its own backdrop behind
 /// every screen (stone and torches, a forest, the sun), frames the
 /// covers in its material, and lays the player, the settings and the cards on
@@ -26,7 +28,9 @@ enum Scene {
   silverWitch('Silver witch', 'Moonlight, mist and silver', kin: Scene.forest, hue: 215, saturation: 0.32),
   // Its own panels (a hull's plates, cut at two corners), turned to gold.
   solar('Space · solar', 'The sun, gold and the dark', hue: 38, saturation: 1.1),
-  dungeon('Dungeon', 'Torchlit stone, rust and bones');
+  dungeon('Dungeon', 'Torchlit stone, rust and bones'),
+  // Drawn by hand, in chalk (scene_sketch.dart): no painting.
+  sketch('Sketch · chalk', 'Hand-drawn chalk on a grainy slate');
 
   const Scene(this.label, this.note, {Scene? kin, this.hue, this.saturation = 1}) : _kin = kin;
 
@@ -50,6 +54,7 @@ enum Scene {
   double get radius => switch (kin) {
         Scene.dungeon => 12,
         Scene.forest => 16,
+        Scene.sketch => 14,
         _ => 2,
       };
 
@@ -288,6 +293,8 @@ void paintBackdrop(Canvas canvas, Size size, Scene scene) {
       _Dungeon(canvas, size).paint();
     case Scene.forest:
       _Forest(canvas, size).paint();
+    case Scene.sketch:
+      _Sketch(canvas, size).paint();
     default:
       // A scene made from a painting, while it loads: its dark, in shadow.
       canvas.drawRect(Offset.zero & size, _fill(_k(scene, const Color(0xFF0A1424))));
@@ -1090,6 +1097,8 @@ void paintCoverFrame(Canvas c, Rect rect, Scene scene, double radius) {
           leafAt(c, tg.position, math.max(4, k * 0.9), (i.isEven ? -0.6 : 0.6) + (sx > 0 ? 0 : math.pi), r, scene: scene);
         }
       }
+    case Scene.sketch:
+      _sketchCoverFrame(c, rect, radius);
     default:
       final sharp = rect.deflate(0.5);
       c.drawRect(sharp, _stroke(_k(scene, _neon).withValues(alpha: 0.4), 1)..strokeCap = StrokeCap.butt);
@@ -1300,6 +1309,8 @@ void paintPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {bool li
           _curl(c, corner + Offset(sx * k * 1.6, sy * 1), 4, sx, scene: scene);
         }
       }
+    case Scene.sketch:
+      _sketchPanel(c, rect, rr, lit: lit);
     default:
       final hull = panelPath(rect, scene, corners);
       c.drawPath(
@@ -1430,6 +1441,8 @@ void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radi
         );
       }
       c.drawPath(path.shift(const Offset(0, 1)), _stroke(Colors.white.withValues(alpha: bright ? 0.2 : 0.07), 1));
+    case Scene.sketch:
+      _sketchButtonInside(c, rect, bright: bright);
     default:
       for (var y = rect.top + 2; y < rect.bottom; y += 3.5) {
         c.drawLine(Offset(rect.left, y), Offset(rect.right, y), _stroke(Colors.white.withValues(alpha: 0.03), 1)..strokeCap = StrokeCap.butt);
@@ -1443,6 +1456,8 @@ void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radi
     case Scene.forest:
       c.drawPath(path, _stroke(_k(scene, const Color(0xFF0A1A0E)).withValues(alpha: 0.8), 1.4));
       c.drawPath(path, _stroke((bright ? _k(scene, const Color(0xFFCFFFF0)) : _k(scene, const Color(0xFF3A6A34))).withValues(alpha: bright ? 0.35 : 0.8), 0.9));
+    case Scene.sketch:
+      _sketchButtonEdge(c, path, rect, fill, bright: bright);
     default:
       if (bright) {
         c.drawPath(path, _glow(fill.withValues(alpha: 0.6), 4)
@@ -1620,6 +1635,8 @@ class LifePainter extends CustomPainter {
         _silverWitchLife(canvas, s, t);
       case Scene.solar:
         _solarLife(canvas, s, t);
+      case Scene.sketch:
+        _sketchLife(canvas, s, t);
     }
     canvas.restore();
   }
@@ -2017,6 +2034,8 @@ class _EmptyPainter extends CustomPainter {
           _light(c, p, 6, _k(scene, const Color(0xFFE6FF6A)).withValues(alpha: 0.6));
           c.drawCircle(p, 1.2, _fill(_k(scene, const Color(0xFFFFF6B0))));
         }
+      case Scene.sketch:
+        _sketchEmpty(c, s);
       default:
         final r = math.Random(9);
         for (var i = 0; i < 30; i++) {
@@ -2141,6 +2160,8 @@ class _OrnamentPainter extends CustomPainter {
           final p = Offset(rr.nextDouble() * s.width, rr.nextDouble() * s.height * 0.6);
           _light(c, p, 6, _k(scene, const Color(0xFFE6FF6A)).withValues(alpha: 0.6));
         }
+      case (Scene.sketch, final foot):
+        _sketchOrnament(c, s, foot: foot);
       case (_, false):
         final m = Offset(s.width / 2, s.height / 2);
         final hex = Path();
@@ -2226,6 +2247,8 @@ class _DividerPainter extends CustomPainter {
         for (var x = 16.0; x < s.width; x += 34) {
           leafAt(c, Offset(x, y + math.sin(x / 14) * 2), 7, (x ~/ 34).isEven ? -0.6 : 0.6, r, scene: scene);
         }
+      case Scene.sketch:
+        _sketchDivider(c, s);
       default:
         c.drawLine(Offset(0, y), Offset(s.width, y), _glow(_k(scene, _neon).withValues(alpha: 0.35), 3)..strokeWidth = 2);
         c.drawLine(Offset(0, y), Offset(s.width, y), _stroke(_k(scene, _neon).withValues(alpha: 0.6), 0.8)..strokeCap = StrokeCap.butt);

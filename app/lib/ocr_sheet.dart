@@ -32,6 +32,55 @@ Future<bool> offerOcr(BuildContext context, LibraryStore store, OcrOffer offer) 
   return started;
 }
 
+/// What Listen (or the book's page) does for book [e], a scan not read yet
+/// or one with only a few pages of text: OCR is offered, or, when it is
+/// reading the pages already, how far it is; a reading that stopped goes on.
+Future<void> askForOcr(BuildContext context, LibraryStore store, LibraryEntry e) async {
+  final jobs = OcrJobs.instance;
+  await jobs.attach(store);
+  if (!context.mounted) return;
+  final job = jobs.jobs.where((j) => j.id == e.id).firstOrNull;
+  if (job != null) {
+    if (jobs.running == job.id || jobs.waiting.contains(job.id) || jobs.making == job.id) {
+      showSnack(
+        context,
+        jobs.making == job.id
+            ? 'OCR has read its pages: “${e.title}” is being made ready to listen to.'
+            : 'OCR is reading its pages (${job.done} of ${job.pages.length}). You can listen once they are read.',
+        long: true,
+      );
+      return;
+    }
+    // Stopped part way: on from the page it reached.
+    try {
+      await jobs.resume(job);
+    } on Object catch (err) {
+      if (context.mounted) showSnack(context, _why(err));
+      return;
+    }
+    if (context.mounted) {
+      showSnack(context, 'Reading “${e.title}” with OCR again, from page ${job.done + 1}.', long: true);
+    }
+    return;
+  }
+  final OcrOffer? offer;
+  try {
+    offer = await store.ocrOfferFor(e);
+  } on Object catch (err) {
+    if (context.mounted) showSnack(context, 'Could not open the PDF: $err');
+    return;
+  }
+  if (!context.mounted) return;
+  if (offer == null) {
+    showSnack(context, 'The PDF of “${e.title}” is no longer on the phone.');
+    return;
+  }
+  if (await offerOcr(context, store, offer) && context.mounted) {
+    showSnack(context, 'Reading “${e.title}” with OCR. It goes on with the screen off; the shelf shows how far.',
+        long: true);
+  }
+}
+
 /// "0.8 MB".
 String _size(int bytes) => '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 
@@ -172,7 +221,10 @@ class _OcrSheetState extends State<_OcrSheet> {
     final title = offer.title;
     final toRead = _toRead;
     final missing = [for (final l in _picked) if (!_data.installed(l)) l];
-    final what = offer.imported
+    final what = offer.scan
+        ? '“$title” is scanned: its ${pages == 1 ? 'page is a picture' : '$pages pages are pictures'}. You can read them as they are; '
+            'to listen to it, its words are read first.'
+        : offer.imported
         ? 'Most pages of “$title” are pictures: ${toRead ?? 'most'} of its $pages pages have no text in them.'
         : '“$title” is scanned: its ${pages == 1 ? 'page is a picture' : '$pages pages are pictures'}, with no text in them.';
     return SafeArea(
@@ -182,7 +234,7 @@ class _OcrSheetState extends State<_OcrSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             SheetHeader(
-              offer.imported ? 'Read the pictures too?' : 'Read it with OCR?',
+              offer.scan ? 'Listen to a scan?' : (offer.imported ? 'Read the pictures too?' : 'Read it with OCR?'),
               subtitle: 'Text recognition, on this phone',
               trailing: Icon(Icons.document_scanner_outlined, color: Skin.accentInkOf(context)),
             ),

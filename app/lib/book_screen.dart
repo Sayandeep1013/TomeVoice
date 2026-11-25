@@ -21,6 +21,8 @@ import 'library_store.dart';
 import 'novel_move.dart' show chapterNumberOf;
 import 'listening_session.dart' show BackgroundReading;
 import 'novel_screen.dart';
+import 'ocr_jobs.dart';
+import 'ocr_sheet.dart';
 import 'organise.dart' show seriesLine;
 import 'organise_sheets.dart';
 import 'saved_screen.dart';
@@ -153,11 +155,15 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
       Navigator.of(context).maybePop();
       return;
     }
+    // A scan OCR has read meanwhile is made again: its words, its voice, its
+    // chapters are the new book's, not the pages it was.
+    final remade = fresh.scan != _entry.scan || fresh.ocr != _entry.ocr;
     setState(() {
       _entry = fresh;
       _index = idx;
       _cursor = cursor;
     });
+    if (remade) await _load();
   }
 
   String get _language {
@@ -221,6 +227,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
           autoplay: play,
           bookDir: _store.bookDir(_entry.id),
           sourcePath: _entry.sourcePath,
+          scanned: _entry.scan || _entry.ocr != null,
         ),
       ),
     ));
@@ -316,7 +323,8 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _voice(context),
+              // A scan not read yet has no voice to pick: OCR first.
+              if (e.scan) _scanRow(context) else _voice(context),
               growIn(
                 context,
                 _people.isEmpty
@@ -357,6 +365,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
           ),
         ),
       ),
+      if (!e.scan)
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
         sliver: SliverToBoxAdapter(
@@ -548,7 +557,8 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
               },
               itemBuilder: (_) => [
                 if (_layout?.isEmpty == false) const PopupMenuItem(value: 'passage', child: Text('Find a passage')),
-                if (_layout?.isEmpty == false) const PopupMenuItem(value: 'audio', child: Text('Save as audio…')),
+                if (_layout?.isEmpty == false && !_entry.scan)
+                  const PopupMenuItem(value: 'audio', child: Text('Save as audio…')),
                 const PopupMenuItem(value: 'rules', child: Text('Reading rules')),
                 const PopupMenuItem(value: 'cover', child: Text('Change cover')),
                 // A file's book only: a web novel's chapters are the site's.
@@ -712,7 +722,12 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
             Expanded(
               flex: 3,
               child: FilledButton.icon(
-                onPressed: _layout == null ? null : () => _read(play: true),
+                // A scan's Listen: OCR, which it needs first.
+                onPressed: _layout == null
+                    ? null
+                    : e.scan
+                        ? () => unawaited(askForOcr(context, _store, _entry))
+                        : () => _read(play: true),
                 icon: const Icon(Icons.play_arrow_rounded, size: 26),
                 label: Text(started ? 'Continue' : (e.finished ? 'Listen again' : 'Listen')),
               ),
@@ -753,6 +768,64 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
             ],
           ),
         ),
+      );
+
+  /// A scan's row in place of its voice: its pages are pictures, and OCR is
+  /// what lets it be listened to; how far OCR is while it reads them.
+  Widget _scanRow(BuildContext context) => ListenableBuilder(
+        listenable: OcrJobs.instance,
+        builder: (context, _) {
+          final jobs = OcrJobs.instance;
+          final job = jobs.jobs.where((j) => j.id == _entry.id).firstOrNull;
+          final reading = job != null && (jobs.running == job.id || jobs.waiting.contains(job.id));
+          final line = job == null
+              ? 'Its pages open as they are. To listen, OCR reads their words first.'
+              : jobs.making == job.id
+                  ? 'Read: being made ready to listen to…'
+                  : reading
+                      ? 'OCR is reading its pages: ${job.done} of ${job.pages.length}'
+                      : 'OCR stopped at page ${job.done} of ${job.pages.length}. Tap to go on.';
+          return Material(
+            color: Skin.capsuleOn(context),
+            borderRadius: BorderRadius.circular(Radii.row + 4),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(Radii.row + 4),
+              onTap: () => unawaited(askForOcr(context, _store, _entry)),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 14),
+                child: Row(
+                  children: [
+                    Icon(Icons.document_scanner_outlined, color: Skin.accentInkOf(context)),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Eyebrow('Scanned pages'),
+                          const SizedBox(height: 2),
+                          Text(
+                            line,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Skin.ui(size: 15.5, weight: FontWeight.w600, color: Skin.inkOn(context)),
+                          ),
+                          if (reading && job.pages.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Progress(job.done / job.pages.length, height: 4),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (job == null) ...[
+                      const SizedBox(width: Gap.m),
+                      Text('OCR', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentInkOf(context))),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
       );
 
   Widget _voice(BuildContext context) {

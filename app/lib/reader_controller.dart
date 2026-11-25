@@ -82,6 +82,7 @@ class ReaderController {
     required ReadingCursor initialCursor,
     this.store,
     ReadingCursor? lookAt,
+    this.playInstead,
   })  : _layout = layout,
         cursor = ValueNotifier(layout.isEmpty
             ? 0
@@ -581,8 +582,13 @@ class ReaderController {
 
   // ------------------------------------------------------------- playback
 
+  /// Asked in place of reading aloud, when set: a scan not read with OCR
+  /// has no words to say, and Play offers OCR (see askForOcr).
+  final Future<void> Function()? playInstead;
+
   Future<void> togglePlay() async {
     if (layout.isEmpty) return;
+    if (playInstead != null) return playInstead!();
     if (_placeAway) {
       // Looking elsewhere: Pause pauses the voice where it reads; Play goes
       // back to it and reads on from there.
@@ -621,6 +627,7 @@ class ReaderController {
     // Handed on: this page goes as soon as the next is built; the voice is
     // not to be pulled back to it.
     if (layout.isEmpty || _stillHanded) return;
+    if (play && playInstead != null) return playInstead!();
     if (_placeAway) {
       // Read from here: the voice comes to this page. Any other move (the
       // player's buttons) is the voice's: back to it first.
