@@ -55,7 +55,7 @@ enum Scene {
         Scene.dungeon => 12,
         Scene.forest => 16,
         Scene.sketch => 14,
-        _ => 2,
+        Scene.solar || Scene.silverWitch => 2,
       };
 
   /// How far a hull's panels and buttons are cut at two corners.
@@ -295,7 +295,7 @@ void paintBackdrop(Canvas canvas, Size size, Scene scene) {
       _Forest(canvas, size).paint();
     case Scene.sketch:
       _Sketch(canvas, size).paint();
-    default:
+    case Scene.solar || Scene.silverWitch:
       // A scene made from a painting, while it loads: its dark, in shadow.
       canvas.drawRect(Offset.zero & size, _fill(_k(scene, const Color(0xFF0A1424))));
       _vignette(canvas, size);
@@ -1099,7 +1099,7 @@ void paintCoverFrame(Canvas c, Rect rect, Scene scene, double radius) {
       }
     case Scene.sketch:
       _sketchCoverFrame(c, rect, radius);
-    default:
+    case Scene.solar || Scene.silverWitch:
       final sharp = rect.deflate(0.5);
       c.drawRect(sharp, _stroke(_k(scene, _neon).withValues(alpha: 0.4), 1)..strokeCap = StrokeCap.butt);
       final len = rect.width * 0.2;
@@ -1311,7 +1311,7 @@ void paintPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {bool li
       }
     case Scene.sketch:
       _sketchPanel(c, rect, rr, lit: lit);
-    default:
+    case Scene.solar || Scene.silverWitch:
       final hull = panelPath(rect, scene, corners);
       c.drawPath(
         hull,
@@ -1443,7 +1443,7 @@ void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radi
       c.drawPath(path.shift(const Offset(0, 1)), _stroke(Colors.white.withValues(alpha: bright ? 0.2 : 0.07), 1));
     case Scene.sketch:
       _sketchButtonInside(c, rect, bright: bright);
-    default:
+    case Scene.solar || Scene.silverWitch:
       for (var y = rect.top + 2; y < rect.bottom; y += 3.5) {
         c.drawLine(Offset(rect.left, y), Offset(rect.right, y), _stroke(Colors.white.withValues(alpha: 0.03), 1)..strokeCap = StrokeCap.butt);
       }
@@ -1458,7 +1458,7 @@ void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radi
       c.drawPath(path, _stroke((bright ? _k(scene, const Color(0xFFCFFFF0)) : _k(scene, const Color(0xFF3A6A34))).withValues(alpha: bright ? 0.35 : 0.8), 0.9));
     case Scene.sketch:
       _sketchButtonEdge(c, path, rect, fill, bright: bright);
-    default:
+    case Scene.solar || Scene.silverWitch:
       if (bright) {
         c.drawPath(path, _glow(fill.withValues(alpha: 0.6), 4)
           ..style = PaintingStyle.stroke
@@ -2036,7 +2036,7 @@ class _EmptyPainter extends CustomPainter {
         }
       case Scene.sketch:
         _sketchEmpty(c, s);
-      default:
+      case Scene.solar || Scene.silverWitch:
         final r = math.Random(9);
         for (var i = 0; i < 30; i++) {
           c.drawCircle(Offset(r.nextDouble() * s.width, r.nextDouble() * s.height), r.nextDouble() * 0.9 + 0.3,
@@ -2162,7 +2162,7 @@ class _OrnamentPainter extends CustomPainter {
         }
       case (Scene.sketch, final foot):
         _sketchOrnament(c, s, foot: foot);
-      case (_, false):
+      case (Scene.solar || Scene.silverWitch, false):
         final m = Offset(s.width / 2, s.height / 2);
         final hex = Path();
         for (var i = 0; i < 6; i++) {
@@ -2176,7 +2176,7 @@ class _OrnamentPainter extends CustomPainter {
           ..strokeWidth = 4);
         c.drawPath(hex, _stroke(_k(scene, const Color(0xFF9FF6FF)), 1.6)..strokeJoin = StrokeJoin.miter);
         c.drawCircle(m, s.width * 0.1, _fill(_k(scene, _neon).withValues(alpha: 0.8)));
-      case (_, true):
+      case (Scene.solar || Scene.silverWitch, true):
         for (var i = 0; i < 8; i++) {
           final color = [_k(scene, const Color(0xFF39FF88)), _k(scene, const Color(0xFFFFB13A)), _k(scene, _neon), _k(scene, const Color(0xFFFF4A6A))][r.nextInt(4)];
           final p = Offset(s.width * (0.1 + i * 0.11), s.height - 14);
@@ -2249,7 +2249,7 @@ class _DividerPainter extends CustomPainter {
         }
       case Scene.sketch:
         _sketchDivider(c, s);
-      default:
+      case Scene.solar || Scene.silverWitch:
         c.drawLine(Offset(0, y), Offset(s.width, y), _glow(_k(scene, _neon).withValues(alpha: 0.35), 3)..strokeWidth = 2);
         c.drawLine(Offset(0, y), Offset(s.width, y), _stroke(_k(scene, _neon).withValues(alpha: 0.6), 0.8)..strokeCap = StrokeCap.butt);
     }

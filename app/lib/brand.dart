@@ -159,7 +159,7 @@ class BrandPainter extends CustomPainter {
             ..shader = ui.Gradient.linear(box.topLeft, box.bottomRight,
                 [sceneInk(scene!, const Color(0xFF5E3B1F)), sceneInk(scene!, const Color(0xFF2E5A2E)), sceneInk(scene!, const Color(0xFF3A2414)), sceneInk(scene!, const Color(0xFF3F8A42))], const [0, 0.4, 0.7, 1]),
         );
-      default:
+      case Scene.solar || Scene.silverWitch:
         // A neon line inside the hull.
         c.drawPath(
           shape,

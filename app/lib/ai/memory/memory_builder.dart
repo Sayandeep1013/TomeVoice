@@ -90,7 +90,20 @@ class BuildEstimate {
     AiProvider.zai ||
     AiProvider.moonshot =>
       (tokens: 40000, chapters: 8),
-    _ => (tokens: 12000, chapters: 2),
+    AiProvider.openrouter ||
+    AiProvider.groq ||
+    AiProvider.openai ||
+    AiProvider.agentrouter ||
+    AiProvider.milionseek ||
+    AiProvider.mistral ||
+    AiProvider.together ||
+    AiProvider.fireworks ||
+    AiProvider.cerebras ||
+    AiProvider.huggingface ||
+    AiProvider.nvidia ||
+    AiProvider.custom ||
+    null =>
+      (tokens: 12000, chapters: 2),
   };
   final cap = key?.dailyCap;
   if (cap == null || cap ~/ 3 >= size.tokens) return size;
