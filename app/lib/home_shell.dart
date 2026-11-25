@@ -744,8 +744,11 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
           ),
         );
     if (scene == null) return Drawer(child: list);
-    // A scene theme: the drawer is a piece of its place, a crest at the top
-    // and something at the foot (a hand and a candle in the dungeon).
+    // A scene theme: the drawer is a piece of its place. A painted scene's
+    // painting comes up undimmed at its foot (its roses, a brass corner, the
+    // undergrowth), fading into the dark under the rows; the chalk scene has
+    // its drawings, a crest at the top and one at the foot.
+    final chalk = scene == Scene.sketch;
     return Drawer(
       backgroundColor: Colors.transparent,
       clipBehavior: Clip.antiAlias,
@@ -754,8 +757,25 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
           Positioned.fill(child: DecoratedBox(decoration: Skin.groundDecoration(context))),
           // Dark enough under the rows for every word on them.
           const Positioned.fill(child: ColoredBox(color: Color(0x8C000000))),
-          Positioned(top: MediaQuery.paddingOf(context).top + 4, right: 6, child: SceneOrnament(scene, foot: false, width: 64, height: 64)),
-          Positioned(left: 0, right: 0, bottom: 0, child: Center(child: SceneOrnament(scene, foot: true, width: 200, height: 110))),
+          if (!chalk)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ShaderMask(
+                  blendMode: BlendMode.dstIn,
+                  shaderCallback: (r) => const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0x00000000), Color(0x00000000), Color(0xCC000000)],
+                    stops: [0, 0.72, 1],
+                  ).createShader(r),
+                  child: DecoratedBox(decoration: Skin.groundDecoration(context)),
+                ),
+              ),
+            ),
+          if (chalk) ...[
+            Positioned(top: MediaQuery.paddingOf(context).top + 4, right: 6, child: SceneOrnament(scene, foot: false, width: 64, height: 64)),
+            Positioned(left: 0, right: 0, bottom: 0, child: Center(child: SceneOrnament(scene, foot: true, width: 200, height: 110))),
+          ],
           list,
         ],
       ),
