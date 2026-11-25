@@ -2664,12 +2664,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   /// Talk is offered: the AI has a key, the book is in the library, and
-  /// not on a secret shelf (never sent).
+  /// not on a secret shelf (never sent), nor a scan OCR has not read (its
+  /// pages are pictures: there are no words to talk about).
   bool get _talkable {
     final store = widget.store;
     return store != null &&
         AiRing.instance.hasKeys &&
         !_l.isEmpty &&
+        !_scan &&
         MemoryService.instance.maySend(_book.id);
   }
 
