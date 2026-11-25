@@ -268,15 +268,15 @@ void main() {
   test('a long first sentence in a natural voice is queued a piece at a time, as the voice cuts it', () async {
     final clause = [
       'the rain came down on the long grey roofs of the old town for hours',
-      'the lamps along the river were lit one after another by the keeper',
-      'the boats that had been out since dawn came slowly back to the quay',
-      'and the people who had waited for them went home to their suppers at last.',
+      'the lamps along the river were lit one after another',
+      'the boats that had been out since dawn came back to the quay',
+      'and the people who had waited went home to their suppers.',
     ];
     final sentence = 'All evening ${clause.join(', ')}';
     final long = ingestString('# One\n\n$sentence Then quiet.', filename: 'longer.md');
     final units = ReadingLayout.build(long).units;
     final first = units.indexWhere((u) => u.text.startsWith('All evening'));
-    expect(units[first].text.length, greaterThan(270));
+    expect(units[first].text.length, greaterThan(240), reason: 'one sentence, not cut by the layout (280 at most)');
 
     final voices = _Voices(dir);
     final player = reader(voices, units: units, voice: 'neural:test:voice');
@@ -284,7 +284,7 @@ void main() {
     await player.play(first);
     await until(() => voices.asked.any((a) => a.text.startsWith('Then')));
     final parts = voices.asked.takeWhile((a) => !a.text.startsWith('Then')).map((a) => a.text).toList();
-    expect(parts.length, greaterThanOrEqualTo(3), reason: 'its first clause, then the pieces of the rest');
+    expect(parts.length, 4, reason: 'its first clause, then the rest at its commas');
     expect(parts.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim(), units[first].text.replaceAll(RegExp(r'\s+'), ' ').trim(),
         reason: 'nothing left out or said twice');
 

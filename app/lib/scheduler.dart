@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'dart:ui' show AppLifecycleState;
 
@@ -1114,13 +1113,14 @@ class PlaybackScheduler {
           VoiceLog.instance.note('first part made', {'ms': watch.elapsedMilliseconds, 'speechMs': headSpeechMs});
         }
         // With a natural voice, the rest of that first sentence is queued
-        // a piece at a time, as each is made: the pieces the voice cuts a
-        // long sentence into anyway ([clausePieces]), so it sounds as it
-        // did, but the first is heard while the next are made. Made whole,
+        // a piece at a time, as each is made, cut at its commas as its
+        // first clause is ([clausePieces], pieces of 50 characters or
+        // more): the first is heard while the next are made. Made whole,
         // the rest of a long one came seconds after its first clause (a
         // friend's phone, 25 Nov 2026: two seconds of silence there).
         final rest = cut > 0 ? text.substring(cut) : text;
-        final parts = cut > 0 && isNeural(narrator) ? clausePieces(rest) : [(start: 0, text: rest)];
+        final parts =
+            cut > 0 && isNeural(narrator) ? clausePieces(rest, over: 120, min: 50) : [(start: 0, text: rest)];
         for (final part in parts.take(parts.length - 1)) {
           final piece = await makeSentence(
             service: service,
