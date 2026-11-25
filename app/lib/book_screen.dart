@@ -155,11 +155,15 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
       Navigator.of(context).maybePop();
       return;
     }
+    // A scan OCR has read meanwhile is made again: its words, its voice, its
+    // chapters are the new book's, not the pages it was.
+    final remade = fresh.scan != _entry.scan || fresh.ocr != _entry.ocr;
     setState(() {
       _entry = fresh;
       _index = idx;
       _cursor = cursor;
     });
+    if (remade) await _load();
   }
 
   String get _language {

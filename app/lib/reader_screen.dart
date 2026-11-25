@@ -2108,7 +2108,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       cursor: voice?.player.unit ?? _cursor,
       player: voice?.player ?? _player,
       speed: _speed,
-      voiceLabel: _voiceLabel(),
+      // A scan not read has no voice yet: OCR is what it needs.
+      voiceLabel: _scan ? 'OCR to listen' : _voiceLabel(),
       sleepNote: voice == null ? _reader.sleepNote : null,
       onPlay: _reader.togglePlay,
       onPrevSentence: voice != null ? () => voice.moveTo(voice.unit - 1) : () => _reader.goTo(_cursor.value - 1),
@@ -2128,7 +2129,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       looking: voice == null ? _detached : null,
       viewChapter: voice == null ? _viewChapter : null,
       onSpeed: () => showListenSheet(context, _listen, focus: ListenFocus.speed),
-      onVoice: () => showListenSheet(context, _listen),
+      onVoice: _scan ? () => unawaited(_askOcr()) : () => showListenSheet(context, _listen),
       onExpand: voice != null ? () => _reader.follow() : _openNowPlaying,
       dock: rail,
       title: _book.metadata.title,
