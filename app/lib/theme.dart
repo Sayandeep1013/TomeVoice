@@ -12,6 +12,8 @@ import 'scene.dart';
 import 'slider_shapes.dart';
 import 'tap_log.dart';
 
+part 'premium_theme_palettes.dart';
+
 /// The visual language, in one place.
 ///
 /// The ground is the forest-to-amber diagonal the app has always had; the
@@ -1019,7 +1021,16 @@ class Palette {
 
   static final scenes = [forestScene, silverWitch, solar, dungeon, sketch];
 
-  static final all = [forest, lavender, ocean, black, paper, ...designer, ...scenes];
+  static final all = [
+    forest,
+    lavender,
+    ocean,
+    black,
+    paper,
+    ...designer,
+    ...scenes,
+    ...PremiumThemes.all,
+  ];
 
   static Palette byId(String? id) => all.where((p) => p.id == idNow(id)).firstOrNull ?? forest;
 
