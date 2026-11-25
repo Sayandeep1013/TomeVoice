@@ -107,3 +107,4 @@ scheduled.
 | Bengali PDFs set in legacy fonts (Bijoy, SutonnyMJ) read as Latin gibberish | The file's text is not Unicode | A conversion from those fonts' encodings to Unicode |
 | Natural voices have no pitch control | No pitch shifter was built ([C-14](09-challenges-and-solutions.md#c-14)) | A formant-preserving shift in DSP |
 | How TTS engines other than Google's report word timings is unmeasured | The test phone had only Google's | Measure on a phone with another engine (Samsung's, eSpeak's) |
+| Opening a book on a 120 Hz phone can drop a few frames in its first moment | The phone lets its GPU slow down after a second or two at rest, and the first 150–300 ms of an animation are drawn on the slow GPU ([C-39](09-challenges-and-solutions.md#c-39)) | A steady 60 Hz while the app is in front (measured: about 1 hitch an opening instead of about 4), as a setting |

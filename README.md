@@ -380,6 +380,9 @@ What TomeVoice does not do yet, and is to be built:
 - **Exporting bookmarks, and plain-text exports.** Today quotes and the journal export as
   Markdown.
 - **WAV audio**, and old Word **.doc** files.
+- **A steady 60 Hz mode.** On a 120 Hz phone, opening a book can still drop a few frames
+  in its first moment, while the phone's graphics wake from rest; at 60 Hz each frame has
+  twice the time ([C-39](docs/09-challenges-and-solutions.md#c-39)).
 
 ## What it deliberately does not do
 
