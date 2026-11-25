@@ -571,6 +571,13 @@ class Skin {
           shape: pill,
           padding: const EdgeInsets.symmetric(horizontal: Gap.xl, vertical: 14),
           textStyle: uiStyle(15, FontWeight.w700),
+          // On the board: scribbled in with chalk, a chalk rim round it.
+          backgroundBuilder: palette.scene == Scene.sketch
+              ? (context, states, child) => CustomPaint(
+                    painter: states.contains(WidgetState.disabled) ? null : SketchFillPainter(amber),
+                    child: child,
+                  )
+              : null,
         ),
       ),
       textButtonTheme: TextButtonThemeData(

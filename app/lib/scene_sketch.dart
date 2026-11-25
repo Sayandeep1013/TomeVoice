@@ -301,19 +301,25 @@ void _sketchPanel(Canvas c, Rect rect, RRect rr, {required bool lit}) {
   }
 }
 
+/// Chalk scribbled over [rect] (clip it first), as a hand fills a shape
+/// in: slanting strokes side by side, each a little unsteady.
+void _hatch(Canvas c, Rect rect, int seed, {double alpha = 0.16}) {
+  for (var x = rect.left - rect.height; x < rect.right; x += 4.5) {
+    c.drawPath(
+      _wobbly(Path()
+        ..moveTo(x, rect.bottom)
+        ..lineTo(x + rect.height, rect.top), seed + x.round(), amp: 0.6, every: 6),
+      _stroke(Colors.white.withValues(alpha: alpha), 1),
+    );
+  }
+}
+
 /// Inside a button on the board, clipped to it: a chosen (bright) one
-/// scribbled over with chalk, as a hand fills a shape in; a plain one grainy.
+/// scribbled over with chalk; a plain one grainy.
 void _sketchButtonInside(Canvas c, Rect rect, {required bool bright}) {
   final seed = (rect.width * 7 + rect.height).round();
   if (bright) {
-    for (var x = rect.left - rect.height; x < rect.right; x += 4.5) {
-      c.drawPath(
-        _wobbly(Path()
-          ..moveTo(x, rect.bottom)
-          ..lineTo(x + rect.height, rect.top), seed + x.round(), amp: 0.6, every: 6),
-        _stroke(Colors.white.withValues(alpha: 0.1), 1),
-      );
-    }
+    _hatch(c, rect, seed);
   } else {
     final r = math.Random(seed);
     for (var i = 0; i < (rect.width * rect.height / 50).clamp(6, 80); i++) {
@@ -496,6 +502,11 @@ class SketchDiscPainter extends CustomPainter {
       ..color = Colors.black.withValues(alpha: 0.16)
       ..strokeWidth = 1.2
       ..strokeCap = StrokeCap.round);
+    final disc = Rect.fromCircle(center: m, radius: rad);
+    c.save();
+    c.clipPath(Path()..addOval(disc));
+    _hatch(c, disc, 9);
+    c.restore();
     paintChalk(c, Path()..addOval(Rect.fromCircle(center: m, radius: rad + 0.5)),
         color: Color.lerp(fill, Colors.white, 0.5)!, width: 1.6, alpha: 0.75, seed: 8, amp: 1.6, dust: false);
   }
@@ -509,3 +520,29 @@ class SketchDiscPainter extends CustomPainter {
 @visibleForTesting
 void paintSketchIcon(Canvas c, IconData icon, Size size, {Color color = _chalk}) =>
     _SketchIconPainter(icon, color).paint(c, size);
+
+/// A filled button on the board (Listen, Continue, a sheet's main action),
+/// behind its label: chalk scribbled over its fill and a chalk rim round
+/// its pill.
+class SketchFillPainter extends CustomPainter {
+  const SketchFillPainter(this.fill);
+
+  final Color fill;
+
+  @override
+  void paint(Canvas c, Size s) {
+    if (s.isEmpty) return;
+    final rect = Offset.zero & s;
+    final pill = Path()..addRRect(RRect.fromRectAndRadius(rect, Radius.circular(s.height / 2)));
+    final seed = (s.width * 7 + s.height).round();
+    c.save();
+    c.clipPath(pill);
+    _hatch(c, rect, seed);
+    c.restore();
+    paintChalk(c, pill, color: Color.lerp(fill, Colors.white, 0.55)!, width: 1.4, alpha: 0.8, seed: seed,
+        amp: math.min(1.1, s.shortestSide * 0.04), dust: false);
+  }
+
+  @override
+  bool shouldRepaint(SketchFillPainter old) => old.fill != fill;
+}
