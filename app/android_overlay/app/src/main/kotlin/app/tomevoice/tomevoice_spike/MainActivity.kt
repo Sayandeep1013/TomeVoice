@@ -719,6 +719,7 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         BrowserCheck.allowLocalForTests = packageName == "app.tomevoice.test"
         super.onCreate(savedInstanceState)
+        DisplayRate.fromLaunch(this, intent)
         // Back at the root, where Flutter has nothing to go back to, also
         // puts TomeVoice behind when Android handles it itself (predictive
         // back, Android 16): it finished an app another app had opened (a

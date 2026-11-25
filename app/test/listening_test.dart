@@ -53,6 +53,20 @@ Future<void> _until(bool Function() done, {Duration within = const Duration(seco
   }
 }
 
+/// Pumps in rounds of 50 ms, real time and the test's alike, so a page's
+/// loading (files, isolates) goes on: at least [least] rounds, then until
+/// [done] holds, or [most] rounds have passed. A machine running other tests
+/// at once loads the chapters several times slower; a fixed number of rounds
+/// made the checks after it fail there.
+Future<void> _settleUntil(WidgetTester tester, bool Function() done, {int least = 8, int most = 400}) async {
+  for (var i = 0; i < most && (i < least || !done()); i++) {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pump(const Duration(milliseconds: 50));
+  }
+}
+
+bool _shows(String text) => find.textContaining(text, findRichText: true).evaluate().isNotEmpty;
+
 /// A WAV of [seconds] of quiet at [rate], written to [path].
 String _quiet(String path, {double seconds = 0.1, int rate = 24000}) {
   File(path).writeAsBytesSync(wavBytes(Float32List((rate * seconds).round()), rate));
@@ -470,8 +484,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: WebNovelReader(store: store, entry: entry)));
     await tester.pump(const Duration(milliseconds: 100));
     // (Time for a page that loads its own chapters to do so.)
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 800)));
-    await tester.pump(const Duration(milliseconds: 100));
+    await _settleUntil(tester, () => BackgroundReading.current.value == null);
     expect(BackgroundReading.current.value, isNull, reason: 'the page did not take the voice back');
     expect(count('playerStop'), stops, reason: 'the voice was stopped and started again');
     expect(player.isPlaying, isTrue);
@@ -499,16 +512,9 @@ void main() {
     tester.view.physicalSize = const Size(1080, 2340);
     tester.view.devicePixelRatio = 2.75;
     addTearDown(tester.view.reset);
-    Future<void> settle() async {
-      for (var i = 0; i < 40; i++) {
-        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-        await tester.pump(const Duration(milliseconds: 50));
-      }
-    }
-
     // Chapter 3, picked from the novel's list: far from the voice's chapters.
     await tester.pumpWidget(MaterialApp(home: WebNovelReader(store: store, entry: entry, startChapter: 2)));
-    await settle();
+    await _settleUntil(tester, () => _shows('Part 3 of the story'), least: 40);
     expect(find.textContaining('Part 3 of the story', findRichText: true), findsWidgets,
         reason: 'the page did not show the chapter picked');
     expect(identical(BackgroundReading.current.value, bg), isTrue, reason: 'the paused reading was ended');
@@ -518,7 +524,7 @@ void main() {
 
     // Play: back to the voice, reading on from where it waited.
     await tester.tap(find.byTooltip('Play'));
-    await settle();
+    await _settleUntil(tester, () => bg.player.isPlaying && _shows('Part 46 of the story'), least: 40);
     expect(bg.player.isPlaying, isTrue, reason: 'Play did not go on with the voice');
     expect(bg.layout.units[bg.player.unit.value].sectionIndex, 45, reason: 'Play started somewhere else');
     expect(find.textContaining('Part 46 of the story', findRichText: true), findsWidgets,
@@ -542,20 +548,12 @@ void main() {
     tester.view.physicalSize = const Size(1080, 2340);
     tester.view.devicePixelRatio = 2.75;
     addTearDown(tester.view.reset);
-    Future<void> settle() async {
-      for (var i = 0; i < 30; i++) {
-        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-        await tester.pump(const Duration(milliseconds: 50));
-      }
-    }
-
     await tester.pumpWidget(MaterialApp(home: WebNovelReader(store: store, entry: entry, startChapter: 2)));
-    await settle();
+    await _settleUntil(tester, () => _shows('Part 3 of the story'), least: 30);
     expect(find.textContaining('Part 3 of the story', findRichText: true), findsWidgets);
     expect((await tester.runAsync(() => store.cursorFor(id)))!.sectionIndex, 30, reason: 'the chapter looked at became the place');
     await tester.tap(find.byTooltip('Play'));
-    await settle();
-    await tester.runAsync(() => _until(() => count('playerEnqueue') > 0));
+    await _settleUntil(tester, () => count('playerEnqueue') > 0 && _shows('Part 31 of the story'), least: 30);
     expect(find.textContaining('Part 31 of the story', findRichText: true), findsWidgets, reason: 'Play did not read from the place');
     expect((await tester.runAsync(() => store.cursorFor(id)))!.sectionIndex, 30);
     await tester.pumpWidget(const SizedBox());
@@ -581,10 +579,7 @@ void main() {
     tester.view.devicePixelRatio = 2.75;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(MaterialApp(home: WebNovelReader(store: store, entry: entry, startChapter: 2)));
-    for (var i = 0; i < 40 && find.textContaining('Part 3 of', findRichText: true).evaluate().isEmpty; i++) {
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-      await tester.pump(const Duration(milliseconds: 50));
-    }
+    await _settleUntil(tester, () => _shows('Part 3 of'), least: 0);
     expect(find.textContaining('Part 3 of the story', findRichText: true), findsWidgets);
     expect(identical(BackgroundReading.current.value, bg), isTrue, reason: 'the voice was taken from the background');
     expect(bg.player.isPlaying, isTrue, reason: 'the voice stopped');
@@ -627,8 +622,8 @@ void main() {
     addTearDown(tester.view.reset);
     await tester.pumpWidget(MaterialApp(home: WebNovelReader(store: store, entry: entry, startChapter: picked)));
     await tester.pump(const Duration(milliseconds: 100));
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 800)));
-    await tester.pump(const Duration(milliseconds: 100));
+    await _settleUntil(
+        tester, () => BackgroundReading.current.value == null && _shows('Part ${picked + 1} of the story'));
     expect(BackgroundReading.current.value, isNull, reason: 'the page did not take the voice back');
     expect(count('playerStop'), stops, reason: 'the voice was stopped');
     expect(player.isPlaying, isTrue);

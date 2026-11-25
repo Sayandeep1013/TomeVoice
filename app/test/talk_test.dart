@@ -467,7 +467,9 @@ void main() {
       tester.view.devicePixelRatio = 2.75;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(MaterialApp(home: BookJournalScreen(store: store, bookId: 'gone', bookTitle: 'A book')));
-      for (var i = 0; i < 10; i++) {
+      // The entries are read from their files: until both are in, which a
+      // machine busy with other tests takes longer to do.
+      for (var i = 0; i < 300 && (i < 10 || find.text('The heroine.').evaluate().isEmpty); i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
         await tester.pump();
       }
