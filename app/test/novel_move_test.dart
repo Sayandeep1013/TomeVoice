@@ -321,7 +321,8 @@ void main() {
       messenger.setMockMethodCallHandler(tts, (call) async => null);
       addTearDown(() => messenger.setMockMethodCallHandler(tts, null));
       Future<void> settle(bool Function() until) async {
-        for (var i = 0; i < 80 && !until(); i++) {
+        // Up to 10 s for a slow disk; done the moment [until] holds.
+        for (var i = 0; i < 400 && !until(); i++) {
           await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
           await tester.pump();
         }
