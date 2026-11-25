@@ -1830,7 +1830,7 @@ class _Found extends StatelessWidget {
         padding: const EdgeInsets.only(top: Gap.s),
         child: Material(
           color: Skin.capsuleOn(context),
-          borderRadius: BorderRadius.circular(Radii.row + 4),
+          shape: Skin.cardShape(context, Radii.row + 4),
           clipBehavior: Clip.antiAlias,
           child: found.isEmpty
               ? Padding(

@@ -787,7 +787,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                       : 'OCR stopped at page ${job.done} of ${job.pages.length}. Tap to go on.';
           return Material(
             color: Skin.capsuleOn(context),
-            borderRadius: BorderRadius.circular(Radii.row + 4),
+            shape: Skin.cardShape(context, Radii.row + 4),
             child: InkWell(
               borderRadius: BorderRadius.circular(Radii.row + 4),
               onTap: () => unawaited(askForOcr(context, _store, _entry)),
@@ -835,7 +835,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
     final speed = trimSpeed(_prefs.speedFor(_entry.id));
     return Material(
       color: Skin.capsuleOn(context),
-      borderRadius: BorderRadius.circular(Radii.row + 4),
+      shape: Skin.cardShape(context, Radii.row + 4),
       child: InkWell(
         borderRadius: BorderRadius.circular(Radii.row + 4),
         onTap: () => showVoicePicker(context, controller),
@@ -876,7 +876,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
   /// TomeVoice, or as its reader said (see showTextChapters).
   Widget _textChapters(BuildContext context) => Material(
         color: Skin.capsuleOn(context),
-        borderRadius: BorderRadius.circular(Radii.row + 4),
+        shape: Skin.cardShape(context, Radii.row + 4),
         child: InkWell(
           borderRadius: BorderRadius.circular(Radii.row + 4),
           onTap: _layout == null ? null : _changeChapters,
@@ -958,7 +958,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
     final n = _people.length;
     return Material(
       color: Skin.capsuleOn(context),
-      borderRadius: BorderRadius.circular(Radii.row + 4),
+      shape: Skin.cardShape(context, Radii.row + 4),
       child: InkWell(
         borderRadius: BorderRadius.circular(Radii.row + 4),
         onTap: () => showCastSheet(

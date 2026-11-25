@@ -250,7 +250,7 @@ class _ChapterNotesScreenState extends State<ChapterNotesScreen> {
       padding: const EdgeInsets.only(bottom: Gap.m),
       child: Material(
         color: Skin.capsuleOn(context),
-        borderRadius: BorderRadius.circular(Radii.row + 4),
+        shape: Skin.cardShape(context, Radii.row + 4),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(Gap.l, Gap.m, Gap.xs, Gap.m),
           child: Row(

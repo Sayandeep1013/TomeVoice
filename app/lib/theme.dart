@@ -156,6 +156,14 @@ class Skin {
           ? SketchIcon(icon, key: key, size: size, color: color)
           : Icon(icon, key: key, size: size, color: color);
 
+  /// A card's shape at [radius]: in a scene, edged in its material
+  /// (scene_crafted.dart).
+  static ShapeBorder cardShape(BuildContext c, double radius) {
+    final scene = sceneOf(c);
+    final r = BorderRadius.circular(radius);
+    return scene == null ? RoundedRectangleBorder(borderRadius: r) : SceneEdge(scene, borderRadius: r);
+  }
+
   /// The scene where [c] is, when the theme is a scene theme (scene.dart).
   static Scene? sceneOf(BuildContext c) => paletteOf(c).scene;
 
@@ -420,11 +428,10 @@ class Skin {
     TextStyle uiStyle(double size, FontWeight w, [Color? color]) =>
         ui(size: size, weight: w, color: color ?? inkColor);
     final pill = RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.pill));
-    // A scene with controls of its own (scene_crafted.dart): its sheets,
-    // dialogs, menus and drawer edged in its material, its knob its own.
+    // In a scene (scene_crafted.dart): its sheets, dialogs, menus and
+    // drawer edged in its material, its own knob, its own buttons.
     final scene = palette.scene;
-    final crafted = isCrafted(scene) ? scene : null;
-    ShapeBorder edged(BorderRadius r) => crafted == null ? RoundedRectangleBorder(borderRadius: r) : SceneEdge(crafted, borderRadius: r);
+    ShapeBorder edged(BorderRadius r) => scene == null ? RoundedRectangleBorder(borderRadius: r) : SceneEdge(scene, borderRadius: r);
 
     return ThemeData(
       useMaterial3: true,
@@ -449,7 +456,7 @@ class Skin {
         thumbColor: dark ? amberSoft : slide,
         overlayColor: amber.withValues(alpha: 0.12),
         trackShape: const InsetTrackShape(),
-        thumbShape: crafted == null ? const PillThumbShape() : SceneKnobShape(crafted),
+        thumbShape: scene == null ? const PillThumbShape() : SceneKnobShape(scene),
         overlayShape: const RoundSliderOverlayShape(overlayRadius: 20),
         tickMarkShape: SliderTickMarkShape.noTickMark,
         activeTickMarkColor: Colors.transparent,
@@ -584,9 +591,9 @@ class Skin {
                     painter: states.contains(WidgetState.disabled) ? null : SketchFillPainter(amber),
                     child: child,
                   )
-              : crafted != null
+              : scene != null
                   ? (context, states, child) => CustomPaint(
-                        painter: states.contains(WidgetState.disabled) ? null : SceneFillPainter(crafted, amber),
+                        painter: states.contains(WidgetState.disabled) ? null : SceneFillPainter(scene, amber),
                         child: child,
                       )
                   : null,
@@ -604,13 +611,18 @@ class Skin {
           foregroundColor: inkColor,
           // In a scene with controls of its own: its silver, or its gilt.
           side: BorderSide(
-            color: switch (crafted) {
+            color: switch (scene) {
+              null => outline,
               Scene.blackRose => const Color(0x99DDE4F4),
               Scene.dragonSlate => const Color(0x88C9C7C0),
               Scene.oldTome => const Color(0xAAD2AA5C),
-              _ => outline,
+              Scene.forest => const Color(0x995E9A4A),
+              Scene.silverWitch => const Color(0x99C8D4E8),
+              Scene.solar => const Color(0x99FFCA70),
+              Scene.dungeon => const Color(0x997A6656),
+              Scene.sketch => const Color(0x99EDE9E0),
             },
-            width: crafted == null ? 1 : 1.2,
+            width: scene == null ? 1 : 1.2,
           ),
           shape: pill,
           padding: const EdgeInsets.symmetric(horizontal: Gap.xl, vertical: 14),

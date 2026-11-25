@@ -799,7 +799,7 @@ class BookJournalSection extends StatelessWidget {
           final words = latest?.preview ?? '';
           return Material(
             color: Skin.capsuleOn(context),
-            borderRadius: BorderRadius.circular(Radii.row + 4),
+            shape: Skin.cardShape(context, Radii.row + 4),
             child: InkWell(
               borderRadius: BorderRadius.circular(Radii.row + 4),
               onTap: latest == null ? write : onSeeAll,

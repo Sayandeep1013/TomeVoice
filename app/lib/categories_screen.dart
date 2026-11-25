@@ -193,7 +193,7 @@ class _CategoryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Material(
         color: Skin.capsuleOn(context),
-        borderRadius: BorderRadius.circular(Radii.row),
+        shape: Skin.cardShape(context, Radii.row),
         child: InkWell(
           borderRadius: BorderRadius.circular(Radii.row),
           onTap: onRename,

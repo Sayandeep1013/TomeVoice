@@ -108,7 +108,7 @@ class _JournalQuestionsScreenState extends State<JournalQuestionsScreen> {
                         padding: const EdgeInsets.only(bottom: Gap.s),
                         child: Material(
                           color: Skin.capsuleOn(context),
-                          borderRadius: BorderRadius.circular(Radii.card / 1.5),
+                          shape: Skin.cardShape(context, Radii.card / 1.5),
                           child: ListTile(
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.card / 1.5)),
                             title: Text(q.text, style: Skin.ui(size: 15.5, weight: FontWeight.w600, color: Skin.inkOn(context))),
