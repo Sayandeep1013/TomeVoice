@@ -227,6 +227,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
           autoplay: play,
           bookDir: _store.bookDir(_entry.id),
           sourcePath: _entry.sourcePath,
+          scanned: _entry.scan || _entry.ocr != null,
         ),
       ),
     ));

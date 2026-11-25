@@ -175,6 +175,7 @@ class _BookLoaderState extends State<BookLoader> {
                     autoplay: widget.autoplay,
                     bookDir: widget.store.bookDir(widget.entry.id),
                     sourcePath: widget.entry.sourcePath,
+                    scanned: widget.entry.scan || widget.entry.ocr != null,
                   )
                 : _ReaderSkeleton(
                     title: widget.entry.title,
@@ -289,10 +290,15 @@ class ReaderScreen extends StatefulWidget {
     this.openContents,
     this.layouts,
     this.link,
+    this.scanned = false,
   });
 
   /// Lets the page holding this reader ask it to save its place.
   final ReaderLink? link;
+
+  /// A scanned PDF (its pages photographs of paper, read by OCR or not):
+  /// shown dark as printed, only dimmed, not inverted into a negative.
+  final bool scanned;
 
   final ReadingLayout layout;
 
@@ -2380,6 +2386,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             spread: _pdfSpread,
             tapToTurn: _prefs.tapToTurn,
             dark: _style.pdfInk,
+            printed: widget.scanned,
             onTurned: _onPdfPage,
             inset: inset,
             onTap: _tapPdf,

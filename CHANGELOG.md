@@ -13,6 +13,7 @@ Scanned books open at once, OCR reads them several times faster, and a new hand-
 - **A scanned PDF opens straight away**, as its real pages: zoom, turn, your place kept. Before, it went nowhere until OCR had read every page, which for a long Bengali or Hindi book took over an hour.
 - **OCR is asked for only when it is needed:** to listen. Listen and Play offer it; the book's page shows a *Scanned pages* row with how far it has got. Once its pages are read, the book reads aloud from the page you were on, and its page shows the new book by itself.
 - **OCR reads several pages at once** on a phone with the cores and memory for it (up to four; one on a phone short of memory). On an 8-core phone a 57-page Bengali scan was read in about 14 seconds.
+- **A scan's pages at night look as printed**, only dimmed. With a dark page tone, PDF pages are turned light-on-dark, which suits a typed PDF; a scan's yellowed paper and pictures came out looking like a photograph's negative.
 - **A scan not read yet offers nothing it cannot do:** no AI memory, Talk or Save as audio until its pages have words.
 
 #### Sketch · chalk
