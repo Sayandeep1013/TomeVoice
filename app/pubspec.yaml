@@ -84,6 +84,8 @@ flutter:
     - assets/scenes/dungeon.webp
     - assets/scenes/silverWitch.webp
     - assets/scenes/solar.webp
+    - assets/scenes/gothic.webp
+    - assets/scenes/classicRenaissance.webp
     # The natural voices on offer, by language, with each one's licence
     # (tools/voice_catalog.py makes it; see neural_voices.dart).
     - assets/voices/catalog.json

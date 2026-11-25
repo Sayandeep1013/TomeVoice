@@ -104,6 +104,12 @@ void main() {
       expect(chosenPalette(prefs).scene, Scene.dungeon);
     });
 
+    test('the contributor scenes have ids of their own; the retired gothic alias still points at the dungeon', () {
+      expect(Palette.byId('scene-gothic-cathedral').scene, Scene.gothic);
+      expect(Palette.byId('scene-classic-renaissance').scene, Scene.classicRenaissance);
+      expect(Palette.byId('scene-gothic').id, 'scene-dungeon');
+    });
+
     test('each scene is a dark-only theme of its own, found by its id, its book colour keeping the scene', () {
       expect(Palette.scenes.map((p) => p.scene), Scene.values);
       for (final p in Palette.scenes) {
@@ -197,6 +203,40 @@ void main() {
         recorder.endRecording().dispose();
         time.dispose();
       }
+    });
+
+    test('a still scene never moves, even with the global life gate on', () {
+      final wasMoving = sceneLifeMoves;
+      final wasSaving = sceneBatterySaver.value;
+      addTearDown(() {
+        sceneLifeMoves = wasMoving;
+        sceneBatterySaver.value = wasSaving;
+      });
+      sceneLifeMoves = true;
+      sceneBatterySaver.value = false;
+      expect(Scene.classicRenaissance.still, isTrue);
+      expect(Scene.gothic.still, isFalse);
+      expect(sceneLifeMovesFor(Scene.classicRenaissance), isFalse);
+      expect(sceneLifeMovesFor(Scene.gothic), isTrue);
+    });
+
+    testWidgets('the still scene builds no life layer; a moving one still does', (tester) async {
+      final wasMoving = sceneLifeMoves;
+      final wasSaving = sceneBatterySaver.value;
+      addTearDown(() {
+        sceneLifeMoves = wasMoving;
+        sceneBatterySaver.value = wasSaving;
+      });
+      sceneLifeMoves = true;
+      sceneBatterySaver.value = false;
+      Widget life(Scene scene) => MaterialApp(home: SceneLife(scene));
+      bool hasLayer() => find.byWidgetPredicate((w) => w is CustomPaint && w.painter is LifePainter).evaluate().isNotEmpty;
+
+      await tester.pumpWidget(life(Scene.classicRenaissance));
+      expect(hasLayer(), isFalse, reason: 'Classic Renaissance is a still picture');
+      await tester.pumpWidget(life(Scene.gothic));
+      expect(hasLayer(), isTrue, reason: 'the cathedral still has candlelight');
+      await tester.pumpWidget(const SizedBox());
     });
 
     test('a scene keeps its own light when book colours are on; a plain theme takes the cover\'s', () {

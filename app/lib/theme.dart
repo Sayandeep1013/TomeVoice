@@ -241,6 +241,8 @@ class Skin {
       Scene.silverWitch => ('Almendra', 1.0, 0.01, FontWeight.w400),
       Scene.solar => ('Cinzel', 0.9, 0.05, FontWeight.w400),
       Scene.dungeon => ('PirataOne', 1.12, 0.01, FontWeight.w400),
+      Scene.gothic => ('PirataOne', 1.08, 0.02, FontWeight.w400),
+      Scene.classicRenaissance => ('BodoniModa', 0.92, 0.04, FontWeight.w500),
     };
     final s = size * scale;
     return TextStyle(
@@ -983,7 +985,48 @@ class Palette {
     scene: Scene.solar,
   ));
 
-  static final scenes = [forestScene, silverWitch, solar, dungeon];
+  /// Contributor scene: a cathedral painting behind aged-gold stone and
+  /// candlelight, with its own icon rim and ornaments.
+  static final gothicScene = readable(const Palette(
+    id: 'scene-gothic-cathedral',
+    label: 'Gothic cathedral',
+    day: [Color(0xFF120D0A), Color(0xFF17100C), Color(0xFF100B08), Color(0xFF080604)],
+    night: [Color(0xFF120D0A), Color(0xFF17100C), Color(0xFF100B08), Color(0xFF080604)],
+    accent: Color(0xFFC9A85A),
+    accentSoft: Color(0xFFE3C98D),
+    accentDeep: Color(0xFF846626),
+    onAccent: Color(0xFF1A1206),
+    nightCapsule: Color(0xF21C1510),
+    nightSheet: Color(0xFF120D09),
+    only: Brightness.dark,
+    scene: Scene.gothic,
+  ));
+
+  /// Contributor scene: a still fresco interior in parchment and laurel.
+  /// Its picture does not move and its life layer is never built.
+  static final classicRenaissanceScene = readable(const Palette(
+    id: 'scene-classic-renaissance',
+    label: 'Classic Renaissance',
+    day: [Color(0xFF1A150D), Color(0xFF201A10), Color(0xFF171208), Color(0xFF0D0A05)],
+    night: [Color(0xFF1A150D), Color(0xFF201A10), Color(0xFF171208), Color(0xFF0D0A05)],
+    accent: Color(0xFFC79A5B),
+    accentSoft: Color(0xFFE2BE86),
+    accentDeep: Color(0xFF8C6534),
+    onAccent: Color(0xFF1B1206),
+    nightCapsule: Color(0xF2271F12),
+    nightSheet: Color(0xFF16110A),
+    only: Brightness.dark,
+    scene: Scene.classicRenaissance,
+  ));
+
+  static final scenes = [
+    forestScene,
+    silverWitch,
+    solar,
+    dungeon,
+    gothicScene,
+    classicRenaissanceScene,
+  ];
 
   static final all = [
     forest,

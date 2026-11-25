@@ -129,6 +129,72 @@ class BrandPainter extends CustomPainter {
 
   /// The scene's rim round the tile.
   void _edge(Canvas c, Rect box, Path shape) {
+    // The two contributor scenes have rims of their own. Their kin still
+    // supplies their panels and buttons; only this icon edge is special.
+    switch (scene) {
+      case Scene.gothic:
+        final gold = sceneInk(scene!, const Color(0xFFC9A85A));
+        c.drawPath(
+          shape,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 28
+            ..shader = ui.Gradient.linear(box.topLeft, box.bottomRight, [
+              sceneInk(scene!, const Color(0xFF5A1E12)),
+              gold,
+              sceneInk(scene!, const Color(0xFF7A2E18)),
+              sceneInk(scene!, const Color(0xFFE0C17E)),
+            ], const [0, 0.34, 0.68, 1]),
+        );
+        // Four little lancet arches, cut into the aged-gold rim.
+        for (final p in const [Offset(58, 58), Offset(454, 58), Offset(58, 454), Offset(454, 454)]) {
+          final side = p.dx < 256 ? 1.0 : -1.0;
+          c.drawPath(
+            Path()
+              ..moveTo(p.dx - 16 * side, p.dy + 22)
+              ..lineTo(p.dx - 16 * side, p.dy - 8)
+              ..quadraticBezierTo(p.dx, p.dy - 34, p.dx + 16 * side, p.dy - 8)
+              ..lineTo(p.dx + 16 * side, p.dy + 22),
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 5
+              ..strokeJoin = StrokeJoin.round
+              ..color = gold,
+          );
+        }
+        return;
+      case Scene.classicRenaissance:
+        final ochre = sceneInk(scene!, const Color(0xFFC79A5B));
+        c.drawPath(
+          shape,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 26
+            ..shader = ui.Gradient.linear(box.topLeft, box.bottomRight, [
+              sceneInk(scene!, const Color(0xFF6E5228)),
+              ochre,
+              sceneInk(scene!, const Color(0xFF9CA381)),
+              sceneInk(scene!, const Color(0xFFE2BE86)),
+            ], const [0, 0.32, 0.66, 1]),
+        );
+        // Laurel sprigs at the corners: flat leaves in muted gold and sage.
+        for (final p in const [Offset(58, 58), Offset(454, 58), Offset(58, 454), Offset(454, 454)]) {
+          for (var i = 0; i < 3; i++) {
+            c.save();
+            c.translate(p.dx + (i - 1) * 11 * (p.dx < 256 ? 1 : -1), p.dy + (i - 1) * 7);
+            c.rotate(-0.45 + i * 0.45);
+            c.drawOval(
+              Rect.fromCenter(center: Offset.zero, width: 26, height: 12),
+              Paint()..color = i == 1 ? ochre : sceneInk(scene!, const Color(0xFF9CA381)),
+            );
+            c.restore();
+          }
+          c.drawCircle(p, 4, Paint()..color = sceneInk(scene!, const Color(0xFF6E5228)));
+        }
+        return;
+      default:
+        break;
+    }
     switch (scene?.kin) {
       case null:
         return;
