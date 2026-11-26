@@ -346,6 +346,15 @@ Paint _glow(Color c, double blur) => Paint()
   ..color = c
   ..maskFilter = MaskFilter.blur(BlurStyle.normal, blur);
 
+/// A glow along [path] without a blur: two wider, fainter strokes under
+/// where a blurred one would be. A blur's mask is drawn again every frame
+/// (the GPU keeps no copy of it), and the hull's neon edges on every panel
+/// and button made Space · solar twice as slow to draw as the others.
+void _haloStroke(Canvas c, Path path, Color color, double width, double blur) {
+  c.drawPath(path, _stroke(color.withValues(alpha: color.a * 0.22), width + blur * 1.6)..strokeCap = StrokeCap.butt);
+  c.drawPath(path, _stroke(color.withValues(alpha: color.a * 0.45), width + blur * 0.6)..strokeCap = StrokeCap.butt);
+}
+
 /// A soft round light (or shadow) at [c], [r] across.
 void _light(Canvas canvas, Offset c, double r, Color color, {double mid = 0.35}) => canvas.drawCircle(
       c,
@@ -1037,9 +1046,7 @@ void bracket(Canvas c, Offset corner, double len, double dx, double dy, Color co
     ..moveTo(corner.dx + len * dx, corner.dy)
     ..lineTo(corner.dx, corner.dy)
     ..lineTo(corner.dx, corner.dy + len * dy);
-  c.drawPath(path, _glow(color.withValues(alpha: 0.6), 4)
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = width + 3);
+  _haloStroke(c, path, color.withValues(alpha: 0.6), width + 3, 4);
   c.drawPath(path, _stroke(Color.lerp(color, Colors.white, 0.5)!, width)..strokeCap = StrokeCap.square);
 }
 
@@ -1358,9 +1365,7 @@ void paintPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {bool li
           ..lineTo(rect.right - k, rect.bottom)
           ..lineTo(rect.right - k - 14, rect.bottom),
       ]) {
-        c.drawPath(edge, _glow(_k(scene, _neon).withValues(alpha: 0.5), 3)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 3.4);
+        _haloStroke(c, edge, _k(scene, _neon).withValues(alpha: 0.5), 3.4, 3);
         c.drawPath(edge, _stroke(_k(scene, const Color(0xFF9FF6FF)), 1.3)..strokeJoin = StrokeJoin.miter);
       }
       final len = math.min(14.0, math.min(rect.width, rect.height) * 0.3);
@@ -1473,9 +1478,7 @@ void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radi
       _sketchButtonEdge(c, path, rect, fill, bright: bright);
     case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.silverDragon || Scene.oldTome:
       if (bright) {
-        c.drawPath(path, _glow(fill.withValues(alpha: 0.6), 4)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.5);
+        _haloStroke(c, path, fill.withValues(alpha: 0.6), 2.5, 4);
       }
       c.drawPath(path, _stroke(bright ? _k(scene, const Color(0xFFCFFBFF)) : _k(scene, _neon).withValues(alpha: 0.55), 1)..strokeJoin = StrokeJoin.miter);
   }
@@ -2301,9 +2304,7 @@ class _OrnamentPainter extends CustomPainter {
           i == 0 ? hex.moveTo(p.dx, p.dy) : hex.lineTo(p.dx, p.dy);
         }
         hex.close();
-        c.drawPath(hex, _glow(_k(scene, _neon).withValues(alpha: 0.5), 5)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 4);
+        _haloStroke(c, hex, _k(scene, _neon).withValues(alpha: 0.5), 4, 5);
         c.drawPath(hex, _stroke(_k(scene, const Color(0xFF9FF6FF)), 1.6)..strokeJoin = StrokeJoin.miter);
         c.drawCircle(m, s.width * 0.1, _fill(_k(scene, _neon).withValues(alpha: 0.8)));
       case (Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.silverDragon || Scene.oldTome, true):
@@ -2313,7 +2314,7 @@ class _OrnamentPainter extends CustomPainter {
           _light(c, p, 8, color.withValues(alpha: 0.5));
           c.drawRect(Rect.fromCenter(center: p, width: 5, height: 3), _fill(color));
         }
-        c.drawLine(Offset(0, s.height - 30), Offset(s.width, s.height - 30), _glow(_k(scene, const Color(0xFFFF3FD0)).withValues(alpha: 0.5), 4)..strokeWidth = 3);
+        _haloStroke(c, Path()..moveTo(0, s.height - 30)..lineTo(s.width, s.height - 30), _k(scene, const Color(0xFFFF3FD0)).withValues(alpha: 0.5), 3, 4);
         c.drawLine(Offset(0, s.height - 30), Offset(s.width, s.height - 30), _stroke(_k(scene, const Color(0xFFFFA8EC)), 1));
     }
   }
@@ -2381,7 +2382,7 @@ class _DividerPainter extends CustomPainter {
       case Scene.sketch:
         _sketchDivider(c, s);
       case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.silverDragon || Scene.oldTome:
-        c.drawLine(Offset(0, y), Offset(s.width, y), _glow(_k(scene, _neon).withValues(alpha: 0.35), 3)..strokeWidth = 2);
+        _haloStroke(c, Path()..moveTo(0, y)..lineTo(s.width, y), _k(scene, _neon).withValues(alpha: 0.35), 2, 3);
         c.drawLine(Offset(0, y), Offset(s.width, y), _stroke(_k(scene, _neon).withValues(alpha: 0.6), 0.8)..strokeCap = StrokeCap.butt);
     }
   }
