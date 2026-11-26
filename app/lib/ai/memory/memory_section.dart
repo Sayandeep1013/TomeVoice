@@ -320,7 +320,7 @@ class _BookMemorySectionState extends State<BookMemorySection> {
       const SizedBox(height: Gap.s),
       Material(
         color: Skin.capsuleOn(context),
-        borderRadius: BorderRadius.circular(Radii.row + 4),
+        shape: Skin.cardShape(context, Radii.row + 4),
         clipBehavior: Clip.antiAlias,
         child: Column(
           children: [
@@ -347,7 +347,7 @@ class _BookMemorySectionState extends State<BookMemorySection> {
         if (widget.compact) {
           return Material(
             color: Skin.capsuleOn(context),
-            borderRadius: BorderRadius.circular(Radii.row + 4),
+            shape: Skin.cardShape(context, Radii.row + 4),
             child: InkWell(
               borderRadius: BorderRadius.circular(Radii.row + 4),
               onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
@@ -937,7 +937,7 @@ class _SeriesCard extends StatelessWidget {
     final service = MemoryService.instance;
     return Material(
       color: Skin.capsuleOn(context),
-      borderRadius: BorderRadius.circular(Radii.row + 4),
+      shape: Skin.cardShape(context, Radii.row + 4),
       child: InkWell(
         borderRadius: BorderRadius.circular(Radii.row + 4),
         onTap: () => Navigator.of(context)

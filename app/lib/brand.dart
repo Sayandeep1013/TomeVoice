@@ -129,6 +129,8 @@ class BrandPainter extends CustomPainter {
 
   /// The scene's rim round the tile.
   void _edge(Canvas c, Rect box, Path shape) {
+    // A scene with its own material rims the tile in it, not its kin's.
+    if (scene case final own? when paintBrandRim(c, box, shape, own)) return;
     switch (scene?.kin) {
       case null:
         return;
@@ -159,7 +161,7 @@ class BrandPainter extends CustomPainter {
             ..shader = ui.Gradient.linear(box.topLeft, box.bottomRight,
                 [sceneInk(scene!, const Color(0xFF5E3B1F)), sceneInk(scene!, const Color(0xFF2E5A2E)), sceneInk(scene!, const Color(0xFF3A2414)), sceneInk(scene!, const Color(0xFF3F8A42))], const [0, 0.4, 0.7, 1]),
         );
-      default:
+      case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.silverDragon || Scene.oldTome:
         // A neon line inside the hull.
         c.drawPath(
           shape,

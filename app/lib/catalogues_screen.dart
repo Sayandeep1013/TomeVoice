@@ -420,7 +420,7 @@ class _CataloguesScreenState extends State<CataloguesScreen> {
         padding: const EdgeInsets.only(bottom: Gap.s),
         child: Material(
           color: Skin.capsuleOn(context),
-          borderRadius: BorderRadius.circular(Radii.row),
+          shape: Skin.cardShape(context, Radii.row),
           child: InkWell(
             borderRadius: BorderRadius.circular(Radii.row),
             onTap: onTap,
@@ -860,7 +860,7 @@ class _EntryRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: Gap.s),
       child: Material(
         color: Skin.capsuleOn(context),
-        borderRadius: BorderRadius.circular(Radii.row),
+        shape: Skin.cardShape(context, Radii.row),
         child: InkWell(
           borderRadius: BorderRadius.circular(Radii.row),
           onTap: e.isBook || e.feed != null ? () => onTap(e) : null,

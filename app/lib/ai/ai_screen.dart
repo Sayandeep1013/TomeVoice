@@ -964,7 +964,7 @@ String? suggestModel(AiProvider provider, AiJob job, List<String> models) {
       return job == AiJob.builder ? best((m) => has(m, ['qwen'])) : best((m) => has(m, ['gpt-oss'])) ?? best(chat);
     case AiProvider.moonshot:
       return best((m) => has(m, ['k3', 'pro'])) ?? best((m) => has(m, ['kimi']));
-    default:
+    case AiProvider.openrouter || AiProvider.groq || AiProvider.openai || AiProvider.agentrouter || AiProvider.custom:
       return null;
   }
 }

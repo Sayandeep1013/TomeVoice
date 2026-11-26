@@ -143,7 +143,7 @@ class _ThreadsScreenState extends State<ThreadsScreen> {
       padding: const EdgeInsets.only(bottom: Gap.m),
       child: Material(
         color: Skin.capsuleOn(context),
-        borderRadius: BorderRadius.circular(Radii.row + 4),
+        shape: Skin.cardShape(context, Radii.row + 4),
         clipBehavior: Clip.antiAlias,
         child: ExpansionTile(
           shape: const Border(),

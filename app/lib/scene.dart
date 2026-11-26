@@ -10,6 +10,7 @@ import 'package:flutter/services.dart' show rootBundle;
 
 import 'speech_service.dart';
 
+part 'scene_crafted.dart';
 part 'scene_sketch.dart';
 
 /// Scene themes: a place, not a colour. Each draws its own backdrop behind
@@ -30,7 +31,16 @@ enum Scene {
   solar('Space · solar', 'The sun, gold and the dark', hue: 38, saturation: 1.1),
   dungeon('Dungeon', 'Torchlit stone, rust and bones'),
   // Drawn by hand, in chalk (scene_sketch.dart): no painting.
-  sketch('Sketch · chalk', 'Hand-drawn chalk on a grainy slate');
+  sketch('Sketch · chalk', 'Hand-drawn chalk on a grainy slate'),
+  // The forest's vines and curls in moonlit silver, over a painting of
+  // black roses at a cathedral window; dark-red petals fall.
+  blackRose('Black rose', 'Moonlit roses, thorns and silver', kin: Scene.forest, hue: 228, saturation: 0.26),
+  // Silver jewellery on black velvet: an intricate silver dragon, polished
+  // silver and sapphires for its controls; glints run over the silver.
+  silverDragon('Silver dragon', 'Silver filigree, sapphires and velvet', kin: Scene.dungeon, hue: 220, saturation: 0.05),
+  // The forest's vines and curls turned to gilt tooling, over the worn
+  // leather of an old book's cover; dust drifts in candlelight.
+  oldTome('Old tome', 'Worn leather, gilt and candlelight', kin: Scene.forest, hue: 36, saturation: 0.55);
 
   const Scene(this.label, this.note, {Scene? kin, this.hue, this.saturation = 1}) : _kin = kin;
 
@@ -55,7 +65,7 @@ enum Scene {
         Scene.dungeon => 12,
         Scene.forest => 16,
         Scene.sketch => 14,
-        _ => 2,
+        Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.silverDragon || Scene.oldTome => 2,
       };
 
   /// How far a hull's panels and buttons are cut at two corners.
@@ -123,7 +133,7 @@ ui.Image? sceneBackdrop(Scene scene, Size size, double dpr) {
 // the forest's trees and vines looked stiff up close; a painting does not.
 
 /// Scenes with a painted backdrop.
-const _withArt = {Scene.forest, Scene.silverWitch, Scene.solar, Scene.dungeon};
+const _withArt = {Scene.forest, Scene.silverWitch, Scene.solar, Scene.dungeon, Scene.blackRose, Scene.silverDragon, Scene.oldTome};
 
 /// Whether painted backdrops are loaded (off under `flutter test`, which
 /// keeps to the drawn ones).
@@ -295,7 +305,7 @@ void paintBackdrop(Canvas canvas, Size size, Scene scene) {
       _Forest(canvas, size).paint();
     case Scene.sketch:
       _Sketch(canvas, size).paint();
-    default:
+    case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.silverDragon || Scene.oldTome:
       // A scene made from a painting, while it loads: its dark, in shadow.
       canvas.drawRect(Offset.zero & size, _fill(_k(scene, const Color(0xFF0A1424))));
       _vignette(canvas, size);
@@ -335,6 +345,15 @@ Paint _stroke(Color c, double w) => Paint()
 Paint _glow(Color c, double blur) => Paint()
   ..color = c
   ..maskFilter = MaskFilter.blur(BlurStyle.normal, blur);
+
+/// A glow along [path] without a blur: two wider, fainter strokes under
+/// where a blurred one would be. A blur's mask is drawn again every frame
+/// (the GPU keeps no copy of it), and the hull's neon edges on every panel
+/// and button made Space · solar twice as slow to draw as the others.
+void _haloStroke(Canvas c, Path path, Color color, double width, double blur) {
+  c.drawPath(path, _stroke(color.withValues(alpha: color.a * 0.22), width + blur * 1.6)..strokeCap = StrokeCap.butt);
+  c.drawPath(path, _stroke(color.withValues(alpha: color.a * 0.45), width + blur * 0.6)..strokeCap = StrokeCap.butt);
+}
 
 /// A soft round light (or shadow) at [c], [r] across.
 void _light(Canvas canvas, Offset c, double r, Color color, {double mid = 0.35}) => canvas.drawCircle(
@@ -1027,9 +1046,7 @@ void bracket(Canvas c, Offset corner, double len, double dx, double dy, Color co
     ..moveTo(corner.dx + len * dx, corner.dy)
     ..lineTo(corner.dx, corner.dy)
     ..lineTo(corner.dx, corner.dy + len * dy);
-  c.drawPath(path, _glow(color.withValues(alpha: 0.6), 4)
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = width + 3);
+  _haloStroke(c, path, color.withValues(alpha: 0.6), width + 3, 4);
   c.drawPath(path, _stroke(Color.lerp(color, Colors.white, 0.5)!, width)..strokeCap = StrokeCap.square);
 }
 
@@ -1038,6 +1055,7 @@ void bracket(Canvas c, Offset corner, double len, double dx, double dy, Color co
 
 /// [scene]'s frame round a cover filling [rect], its corners [radius].
 void paintCoverFrame(Canvas c, Rect rect, Scene scene, double radius) {
+  if (_craftedCoverFrame(c, rect, scene, radius)) return;
   final t = (rect.width * 0.06).clamp(2.5, 9.0);
   switch (scene.kin) {
     case Scene.dungeon:
@@ -1099,7 +1117,7 @@ void paintCoverFrame(Canvas c, Rect rect, Scene scene, double radius) {
       }
     case Scene.sketch:
       _sketchCoverFrame(c, rect, radius);
-    default:
+    case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.silverDragon || Scene.oldTome:
       final sharp = rect.deflate(0.5);
       c.drawRect(sharp, _stroke(_k(scene, _neon).withValues(alpha: 0.4), 1)..strokeCap = StrokeCap.butt);
       final len = rect.width * 0.2;
@@ -1217,6 +1235,7 @@ void paintPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {bool li
       c.drawRRect(rr.shift(s.offset).inflate(s.spreadRadius), s.toPaint());
     }
   }
+  if (_craftedPanel(c, rect, scene, corners, lit: lit)) return;
   final r = math.Random((rect.width * 31 + rect.height).round());
   switch (scene.kin) {
     case Scene.dungeon:
@@ -1311,7 +1330,7 @@ void paintPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {bool li
       }
     case Scene.sketch:
       _sketchPanel(c, rect, rr, lit: lit);
-    default:
+    case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.silverDragon || Scene.oldTome:
       final hull = panelPath(rect, scene, corners);
       c.drawPath(
         hull,
@@ -1346,9 +1365,7 @@ void paintPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {bool li
           ..lineTo(rect.right - k, rect.bottom)
           ..lineTo(rect.right - k - 14, rect.bottom),
       ]) {
-        c.drawPath(edge, _glow(_k(scene, _neon).withValues(alpha: 0.5), 3)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 3.4);
+        _haloStroke(c, edge, _k(scene, _neon).withValues(alpha: 0.5), 3.4, 3);
         c.drawPath(edge, _stroke(_k(scene, const Color(0xFF9FF6FF)), 1.3)..strokeJoin = StrokeJoin.miter);
       }
       final len = math.min(14.0, math.min(rect.width, rect.height) * 0.3);
@@ -1400,6 +1417,7 @@ class _SceneButtonPainter extends BoxPainter {
 
 /// A button of [scene]'s material at [rect].
 void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radius) {
+  if (_craftedButton(c, rect, scene, fill, radius)) return;
   final path = scene.kin == Scene.solar
       ? cutPath(rect, math.min(8.0, rect.shortestSide * 0.3))
       : (Path()..addRRect(radius.toRRect(rect)));
@@ -1443,7 +1461,7 @@ void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radi
       c.drawPath(path.shift(const Offset(0, 1)), _stroke(Colors.white.withValues(alpha: bright ? 0.2 : 0.07), 1));
     case Scene.sketch:
       _sketchButtonInside(c, rect, bright: bright);
-    default:
+    case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.silverDragon || Scene.oldTome:
       for (var y = rect.top + 2; y < rect.bottom; y += 3.5) {
         c.drawLine(Offset(rect.left, y), Offset(rect.right, y), _stroke(Colors.white.withValues(alpha: 0.03), 1)..strokeCap = StrokeCap.butt);
       }
@@ -1458,11 +1476,9 @@ void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radi
       c.drawPath(path, _stroke((bright ? _k(scene, const Color(0xFFCFFFF0)) : _k(scene, const Color(0xFF3A6A34))).withValues(alpha: bright ? 0.35 : 0.8), 0.9));
     case Scene.sketch:
       _sketchButtonEdge(c, path, rect, fill, bright: bright);
-    default:
+    case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.silverDragon || Scene.oldTome:
       if (bright) {
-        c.drawPath(path, _glow(fill.withValues(alpha: 0.6), 4)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.5);
+        _haloStroke(c, path, fill.withValues(alpha: 0.6), 2.5, 4);
       }
       c.drawPath(path, _stroke(bright ? _k(scene, const Color(0xFFCFFBFF)) : _k(scene, _neon).withValues(alpha: 0.55), 1)..strokeJoin = StrokeJoin.miter);
   }
@@ -1637,6 +1653,12 @@ class LifePainter extends CustomPainter {
         _solarLife(canvas, s, t);
       case Scene.sketch:
         _sketchLife(canvas, s, t);
+      case Scene.blackRose:
+        _blackRoseLife(canvas, s, t);
+      case Scene.silverDragon:
+        _silverDragonLife(canvas, s, t);
+      case Scene.oldTome:
+        _oldTomeLife(canvas, s, t);
     }
     canvas.restore();
   }
@@ -1878,9 +1900,8 @@ void _sigil(Canvas c, Size s, double t) {
   final centre = Offset(s.width * 0.5, s.height * 0.72);
   final r = s.width * 0.3;
   const color = Color(0xFFD8E4FF);
-  final glow = _glow(color.withValues(alpha: 0.35 * fade), 4)
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 2.5;
+  // A wide faint stroke for its glow: a blur here cost a pass every frame.
+  final glow = _stroke(color.withValues(alpha: 0.14 * fade), 4.5);
   final line = _stroke(color.withValues(alpha: 0.55 * fade), 1);
   final oval = Rect.fromCenter(center: centre, width: r * 2, height: r * 0.7);
   final sweep = math.pi * 2 * drawn;
@@ -1947,7 +1968,10 @@ void _silverWitchLife(Canvas c, Size s, double t) {
 void _solarLife(Canvas c, Size s, double t) {
   final sun = Offset(s.width * 1.02, s.height * 0.48);
   final pulse = 0.5 + 0.5 * math.sin(t * 0.6);
-  _light(c, sun, s.width * (0.9 + 0.08 * pulse), const Color(0xFFFFB030).withValues(alpha: 0.12 + 0.06 * pulse), mid: 0.25);
+  // Its glow breathes in strength, not size, and reaches less far: the
+  // glow over half the screen, redrawn 30 times a second, was most of a
+  // frame's work (15 ms on a mid-range phone).
+  _light(c, sun, s.width * 0.6, const Color(0xFFFFB030).withValues(alpha: 0.12 + 0.06 * pulse), mid: 0.25);
   final flare = (t % 11) / 11;
   if (flare < 0.35) {
     final k = flare / 0.35;
@@ -1956,9 +1980,8 @@ void _solarLife(Canvas c, Size s, double t) {
     final arc = Path()
       ..moveTo(foot.dx, foot.dy - 30)
       ..quadraticBezierTo(foot.dx - s.width * (0.06 + 0.1 * k), foot.dy - 50 - 40 * k, foot.dx + 6, foot.dy + 34);
-    c.drawPath(arc, _glow(const Color(0xFFFF7A20).withValues(alpha: 0.45 * (1 - k)), 6)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 5);
+    c.drawPath(arc, _stroke(const Color(0xFFFF7A20).withValues(alpha: 0.16 * (1 - k)), 9));
+    c.drawPath(arc, _stroke(const Color(0xFFFF9A40).withValues(alpha: 0.4 * (1 - k)), 3.5));
   }
   for (var d = 0; d < 20; d++) {
     final x = (d * 97.0 + t * (5 + d % 4)) % s.width;
@@ -1966,6 +1989,115 @@ void _solarLife(Canvas c, Size s, double t) {
     c.drawCircle(Offset(x, y), 0.8 + (d % 3) * 0.3, _fill(const Color(0xFFFFE0A0).withValues(alpha: 0.10 + 0.1 * math.sin(t + d))));
   }
   _transit(c, s, t);
+}
+
+/// Black rose: the moon's light at the window breathing, a faint mist
+/// drifting low, and dark-red petals falling, each turning slowly as it
+/// sways, gone before it reaches the player.
+void _blackRoseLife(Canvas c, Size s, double t) {
+  // The painting's moon, at its window.
+  _light(c, Offset(s.width * 0.9, s.height * 0.19), 110 + 12 * math.sin(t * 0.45),
+      const Color(0xFFD8E2FF).withValues(alpha: 0.08 + 0.035 * math.sin(t * 0.45)), mid: 0.25);
+  for (var i = 0; i < 2; i++) {
+    final y = s.height * (0.62 + i * 0.16);
+    final x = ((t * (6 + i * 3) + i * 220) % (s.width + 420)) - 210;
+    c.drawOval(
+      Rect.fromCenter(center: Offset(x, y), width: 380, height: 64),
+      Paint()
+        ..shader = ui.Gradient.radial(Offset(x, y), 190,
+            [const Color(0xFFB8C4E0).withValues(alpha: 0.05), const Color(0xFFB8C4E0).withValues(alpha: 0)]),
+    );
+  }
+  for (var i = 0; i < 9; i++) {
+    final fall = 15.0 + (i % 4) * 3.5;
+    final age = ((t + i * 2.9) % fall) / fall;
+    // In from the top, out by four fifths down: off the player.
+    final y = -16 + age * s.height * 0.84;
+    final x = (i * 0.137 + 0.05) % 1 * s.width + math.sin(t * 0.6 + i * 1.3) * 26;
+    final fade = math.min(1.0, math.min(age * 8, (1 - age) * 5));
+    final turn = t * (0.5 + (i % 3) * 0.25) + i;
+    final size = 5.0 + (i % 3) * 1.6;
+    c.save();
+    c.translate(x, y);
+    c.rotate(turn);
+    // A petal: wider at its tip, foreshortened as it turns.
+    final squash = 0.45 + 0.55 * math.cos(turn * 1.3).abs();
+    final petal = Path()
+      ..moveTo(0, -size)
+      ..cubicTo(size * 0.9 * squash, -size * 0.7, size * 0.7 * squash, size * 0.8, 0, size)
+      ..cubicTo(-size * 0.7 * squash, size * 0.8, -size * 0.9 * squash, -size * 0.7, 0, -size);
+    c.drawPath(petal, _fill(Color.lerp(const Color(0xFF5E0F1C), const Color(0xFF8E1F30), (i % 3) / 2)!.withValues(alpha: 0.7 * fade)));
+    c.drawPath(petal, _stroke(const Color(0xFFE6A0AE).withValues(alpha: 0.12 * fade), 0.6));
+    c.restore();
+  }
+}
+
+/// Silver dragon: glints catching on the silver here and there, each a
+/// four-pointed star that flares and fades; now and then a slow sheen
+/// passes across the screen, as light over a jewel.
+void _silverDragonLife(Canvas c, Size s, double t) {
+  for (var i = 0; i < 11; i++) {
+    final period = 3.5 + (i % 4) * 1.3;
+    final k = ((t + i * 0.83) % period) / period;
+    if (k > 0.22) continue;
+    // A new place each time it flares.
+    final n = ((t + i * 0.83) / period).floor() * 31 + i * 7;
+    final p = Offset((n * 0.137 % 1) * s.width, (0.18 + (n * 0.293 % 1) * 0.62) * s.height);
+    final a = math.sin(k / 0.22 * math.pi);
+    final r = (3.0 + (i % 3) * 1.5) * a;
+    final ray = _fill(const Color(0xFFF4F8FF).withValues(alpha: 0.85 * a));
+    c.drawPath(
+      Path()
+        ..moveTo(p.dx, p.dy - r * 2.2)
+        ..quadraticBezierTo(p.dx, p.dy, p.dx + r * 2.2, p.dy)
+        ..quadraticBezierTo(p.dx, p.dy, p.dx, p.dy + r * 2.2)
+        ..quadraticBezierTo(p.dx, p.dy, p.dx - r * 2.2, p.dy)
+        ..quadraticBezierTo(p.dx, p.dy, p.dx, p.dy - r * 2.2)
+        ..close(),
+      ray,
+    );
+    c.drawCircle(p, r * 1.6, _fill(const Color(0xFFCFE0FF).withValues(alpha: 0.12 * a)));
+  }
+  const every = 12.0;
+  final k = (t % every) / every;
+  if (k < 0.2) {
+    // The sheen: a soft diagonal band crossing from left to right.
+    final x = -s.width * 0.5 + (k / 0.2) * s.width * 2;
+    final band = Rect.fromLTRB(x - s.width * 0.25, 0, x + s.width * 0.25, s.height);
+    c.drawRect(
+      band,
+      Paint()
+        ..shader = ui.Gradient.linear(band.centerLeft, band.centerRight, const [
+          Color(0x00DCE6F6),
+          Color(0x0FDCE6F6),
+          Color(0x00DCE6F6),
+        ], const [
+          0,
+          0.5,
+          1,
+        ]),
+    );
+  }
+}
+
+/// Old tome: a candle's warm light breathing at the upper left, and dust
+/// drifting slowly through it, catching the light as it turns.
+void _oldTomeLife(Canvas c, Size s, double t) {
+  final f = _flicker(t * 0.35, 1.7).clamp(0.0, 1.0);
+  _light(c, Offset(s.width * 0.12, s.height * 0.14), s.width * 0.45,
+      const Color(0xFFFFB45A).withValues(alpha: 0.06 + 0.05 * f), mid: 0.25);
+  for (var i = 0; i < 28; i++) {
+    final drift = 40.0 + (i % 5) * 9;
+    final age = ((t + i * 3.1) % drift) / drift;
+    final x = ((i * 0.191 + 0.02) % 1 + age * 0.18) % 1 * s.width + math.sin(t * 0.3 + i) * 14;
+    final y = ((i * 0.317 + 0.05) % 1) * s.height * 0.8 + math.sin(t * 0.22 + i * 1.9) * 24 - age * 30;
+    // Brighter nearer the candle, glinting as a mote turns.
+    final near = 1 - ((Offset(x, y) - Offset(s.width * 0.12, s.height * 0.14)).distance / s.height).clamp(0.0, 1.0);
+    final glint = 0.5 + 0.5 * math.sin(t * (1.1 + (i % 4) * 0.3) + i);
+    final fade = math.min(1.0, math.min(age * 6, (1 - age) * 6));
+    c.drawCircle(Offset(x, y), 0.7 + (i % 3) * 0.35,
+        _fill(const Color(0xFFFFE2B0).withValues(alpha: (0.08 + 0.32 * near * glint) * fade)));
+  }
 }
 
 /// What an empty screen shows in [scene], [size] across.
@@ -1988,6 +2120,7 @@ class _EmptyPainter extends CustomPainter {
 
   @override
   void paint(Canvas c, Size s) {
+    if (paintOwnEmpty(c, s, scene)) return;
     final m = Offset(s.width / 2, s.height / 2);
     switch (scene.kin) {
       case Scene.dungeon:
@@ -2036,7 +2169,7 @@ class _EmptyPainter extends CustomPainter {
         }
       case Scene.sketch:
         _sketchEmpty(c, s);
-      default:
+      case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.silverDragon || Scene.oldTome:
         final r = math.Random(9);
         for (var i = 0; i < 30; i++) {
           c.drawCircle(Offset(r.nextDouble() * s.width, r.nextDouble() * s.height), r.nextDouble() * 0.9 + 0.3,
@@ -2162,7 +2295,7 @@ class _OrnamentPainter extends CustomPainter {
         }
       case (Scene.sketch, final foot):
         _sketchOrnament(c, s, foot: foot);
-      case (_, false):
+      case (Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.silverDragon || Scene.oldTome, false):
         final m = Offset(s.width / 2, s.height / 2);
         final hex = Path();
         for (var i = 0; i < 6; i++) {
@@ -2171,19 +2304,17 @@ class _OrnamentPainter extends CustomPainter {
           i == 0 ? hex.moveTo(p.dx, p.dy) : hex.lineTo(p.dx, p.dy);
         }
         hex.close();
-        c.drawPath(hex, _glow(_k(scene, _neon).withValues(alpha: 0.5), 5)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 4);
+        _haloStroke(c, hex, _k(scene, _neon).withValues(alpha: 0.5), 4, 5);
         c.drawPath(hex, _stroke(_k(scene, const Color(0xFF9FF6FF)), 1.6)..strokeJoin = StrokeJoin.miter);
         c.drawCircle(m, s.width * 0.1, _fill(_k(scene, _neon).withValues(alpha: 0.8)));
-      case (_, true):
+      case (Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.silverDragon || Scene.oldTome, true):
         for (var i = 0; i < 8; i++) {
           final color = [_k(scene, const Color(0xFF39FF88)), _k(scene, const Color(0xFFFFB13A)), _k(scene, _neon), _k(scene, const Color(0xFFFF4A6A))][r.nextInt(4)];
           final p = Offset(s.width * (0.1 + i * 0.11), s.height - 14);
           _light(c, p, 8, color.withValues(alpha: 0.5));
           c.drawRect(Rect.fromCenter(center: p, width: 5, height: 3), _fill(color));
         }
-        c.drawLine(Offset(0, s.height - 30), Offset(s.width, s.height - 30), _glow(_k(scene, const Color(0xFFFF3FD0)).withValues(alpha: 0.5), 4)..strokeWidth = 3);
+        _haloStroke(c, Path()..moveTo(0, s.height - 30)..lineTo(s.width, s.height - 30), _k(scene, const Color(0xFFFF3FD0)).withValues(alpha: 0.5), 3, 4);
         c.drawLine(Offset(0, s.height - 30), Offset(s.width, s.height - 30), _stroke(_k(scene, const Color(0xFFFFA8EC)), 1));
     }
   }
@@ -2213,6 +2344,7 @@ class _DividerPainter extends CustomPainter {
   @override
   void paint(Canvas c, Size s) {
     final y = s.height / 2;
+    if (paintOwnDivider(c, s, scene)) return;
     switch (scene.kin) {
       case Scene.dungeon:
         final rune = _stroke(_k(scene, const Color(0xFF8A6A4A)).withValues(alpha: 0.55), 1.1);
@@ -2249,8 +2381,8 @@ class _DividerPainter extends CustomPainter {
         }
       case Scene.sketch:
         _sketchDivider(c, s);
-      default:
-        c.drawLine(Offset(0, y), Offset(s.width, y), _glow(_k(scene, _neon).withValues(alpha: 0.35), 3)..strokeWidth = 2);
+      case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.silverDragon || Scene.oldTome:
+        _haloStroke(c, Path()..moveTo(0, y)..lineTo(s.width, y), _k(scene, _neon).withValues(alpha: 0.35), 2, 3);
         c.drawLine(Offset(0, y), Offset(s.width, y), _stroke(_k(scene, _neon).withValues(alpha: 0.6), 0.8)..strokeCap = StrokeCap.butt);
     }
   }

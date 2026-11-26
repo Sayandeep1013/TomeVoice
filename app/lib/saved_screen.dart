@@ -301,7 +301,7 @@ class _SavedScreenState extends State<SavedScreen> {
       padding: const EdgeInsets.only(top: Gap.xs),
       child: Material(
         color: Skin.capsuleOn(context),
-        borderRadius: BorderRadius.circular(Radii.card / 1.5),
+        shape: Skin.cardShape(context, Radii.card / 1.5),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(Gap.l, Gap.xs, Gap.xs, Gap.xs),
           child: Row(
@@ -342,7 +342,7 @@ class _SavedScreenState extends State<SavedScreen> {
           padding: const EdgeInsets.only(bottom: Gap.s),
           child: Material(
             color: Skin.capsuleOn(context),
-            borderRadius: BorderRadius.circular(Radii.card / 1.5),
+            shape: Skin.cardShape(context, Radii.card / 1.5),
             child: InkWell(
               borderRadius: BorderRadius.circular(Radii.card / 1.5),
               onTap: () => _open(m),
@@ -520,7 +520,7 @@ class BookSavedSection extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: Gap.s),
                   child: Material(
                     color: Skin.capsuleOn(context),
-                    borderRadius: BorderRadius.circular(Radii.card / 1.5),
+                    shape: Skin.cardShape(context, Radii.card / 1.5),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(Radii.card / 1.5),
                       onTap: () => openBook(context, store, entry, at: m),

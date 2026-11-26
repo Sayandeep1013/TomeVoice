@@ -4,7 +4,7 @@ description: >-
   HTML, Markdown and text, and reads them aloud with the owned audio pipeline.
   See docs/README.md.
 publish_to: none
-version: 2.7.0+49
+version: 2.8.0+50
 
 environment:
   sdk: ^3.5.0
@@ -68,6 +68,9 @@ flutter:
     - assets/fonts/OFL-UncialAntiqua.txt
     - assets/fonts/OFL-Almendra.txt
     - assets/fonts/OFL-Cinzel.txt
+    - assets/fonts/OFL-CormorantGaramond.txt
+    - assets/fonts/OFL-MarcellusSC.txt
+    - assets/fonts/OFL-IMFellEnglish.txt
     # The libraries LNReader source plugins use, and TomeVoice's host for
     # them (tools/lnreader_libs builds the first).
     - assets/js/lnreader_libs.js
@@ -84,6 +87,9 @@ flutter:
     - assets/scenes/dungeon.webp
     - assets/scenes/silverWitch.webp
     - assets/scenes/solar.webp
+    - assets/scenes/blackRose.webp
+    - assets/scenes/silverDragon.webp
+    - assets/scenes/oldTome.webp
     # The natural voices on offer, by language, with each one's licence
     # (tools/voice_catalog.py makes it; see neural_voices.dart).
     - assets/voices/catalog.json
@@ -138,3 +144,13 @@ flutter:
     - family: Cinzel
       fonts:
         - asset: assets/fonts/Cinzel-SemiBold.ttf
+    - family: CormorantGaramond
+      fonts:
+        - asset: assets/fonts/CormorantGaramond-SemiBold.ttf
+          weight: 600
+    - family: MarcellusSC
+      fonts:
+        - asset: assets/fonts/MarcellusSC-Regular.ttf
+    - family: IMFellEnglish
+      fonts:
+        - asset: assets/fonts/IMFellEnglish-Regular.ttf

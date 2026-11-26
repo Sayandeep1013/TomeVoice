@@ -260,10 +260,16 @@ void main() {
           findsWidgets,
         );
 
-        // The drawer: the scene, its crest and its foot.
+        // The drawer: the scene, and at its foot the scene's painting come
+        // up undimmed; the chalk scene, its drawn crest and foot.
         await tester.tap(find.byTooltip('Menu').first);
         await tester.pumpAndSettle();
-        expect(find.byType(SceneOrnament), findsNWidgets(2));
+        if (palette.scene == Scene.sketch) {
+          expect(find.byType(SceneOrnament), findsNWidgets(2));
+        } else {
+          expect(find.byType(SceneOrnament), findsNothing);
+          expect(find.descendant(of: find.byType(Drawer), matching: find.byType(ShaderMask)), findsWidgets);
+        }
         expect(find.byType(SceneDivider), findsWidgets);
         expect(tester.takeException(), isNull);
 

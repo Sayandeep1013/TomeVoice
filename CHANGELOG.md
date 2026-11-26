@@ -3,6 +3,31 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 2.8.0 (2026-11-26)
+
+Three new scenes that dress the whole app, not only its backdrop, and natural voices that change speed at once.
+
+**Updating** keeps your library, your keys, every book's memory and your journal.
+
+#### Three new scenes
+- **Black rose:** black and blood-red roses on thorny vines at a moonlit cathedral window. Dark-red petals fall and turn, the moon's light breathes. Buttons are dark glass in chrome rims; panels, menus, sheets and dialogs have silver edges with filigree in their corners; the slider's knob is a glass orb.
+- **Silver dragon:** a dragon of silver filigree set with sapphires, coiled on black velvet. Glints flare on the silver and a slow sheen crosses it now and then. Buttons are polished silver with a sapphire set in them; panels are velvet; edges are engraved silver with a row of scales and sapphires; the divider is a silver chain; the knob is a sapphire in a silver setting.
+- **Old tome:** the worn leather cover of an old book, gilt tooling and brass corners. Dust drifts in candlelight. Buttons are tooled leather with stitches; edges are gilt rules with brass corner pieces; the knob is a brass stud.
+- In these three, the filled buttons, outlined buttons, menus, sheets, dialogs, the drawer and the slider take the scene's own look, not the plain app's. New lettering for each: Cormorant Garamond, Marcellus SC and IM Fell English.
+- **Every scene got the same care:** its own logo rim, its own dividers (Old tome's are gilt rules, no longer vines), an empty screen showing a cameo of its own painting, and in the drawer the chosen row is a bar of the scene's material with its emblem. The chosen shelf tab takes the scene's button look.
+- **Scene behind the page** (Settings, under Animations, when a scene is chosen): the scene's painting behind the words you read, darkened so they stay easy to read. Off unless you turn it on.
+- **Scenes are lighter to draw:** no blurs redrawn every frame, smaller glows, and textured pieces drawn once and kept. Space · solar was the heaviest.
+- Their paintings were made for TomeVoice with ChatGPT's image generation; the credits are under About → licences.
+
+#### Natural voices
+- **A change of speed is heard at once.** What was already made is played at the new speed, its pitch kept, from the start of the sentence being heard; the voice makes what follows at the new speed itself. Before, a natural voice went silent for seconds after each change (6.2 s on one phone). A very big jump (3× to 1×) is still made again.
+- **The first sentence after Play comes in pieces**, cut at its commas, so the next piece is made while the first is heard.
+- **A voice that cannot keep up says so**, once: a natural voice that falls silent twice at a speed for being slower than speech suggests a slower speed or the phone's own voice.
+- The voice log notes the changes of speed heard at once.
+
+#### Under the hood
+- Every place that draws something per scene, or per AI service, now names each one, so a new one cannot be missed.
+
 ## 2.7.0 (2026-11-25)
 
 Scanned books open at once, OCR reads them several times faster, and a new hand-drawn theme: Sketch · chalk.

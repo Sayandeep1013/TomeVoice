@@ -156,6 +156,14 @@ class Skin {
           ? SketchIcon(icon, key: key, size: size, color: color)
           : Icon(icon, key: key, size: size, color: color);
 
+  /// A card's shape at [radius]: in a scene, edged in its material
+  /// (scene_crafted.dart).
+  static ShapeBorder cardShape(BuildContext c, double radius) {
+    final scene = sceneOf(c);
+    final r = BorderRadius.circular(radius);
+    return scene == null ? RoundedRectangleBorder(borderRadius: r) : SceneEdge(scene, borderRadius: r);
+  }
+
   /// The scene where [c] is, when the theme is a scene theme (scene.dart).
   static Scene? sceneOf(BuildContext c) => paletteOf(c).scene;
 
@@ -247,6 +255,9 @@ class Skin {
       Scene.solar => ('Cinzel', 0.9, 0.05, FontWeight.w400),
       Scene.dungeon => ('PirataOne', 1.12, 0.01, FontWeight.w400),
       Scene.sketch => ('Caveat', 1.22, 0.0, FontWeight.w600),
+      Scene.blackRose => ('CormorantGaramond', 1.12, 0.01, FontWeight.w600),
+      Scene.silverDragon => ('MarcellusSC', 0.94, 0.06, FontWeight.w400),
+      Scene.oldTome => ('IMFellEnglish', 1.1, 0.0, FontWeight.w400),
     };
     final s = size * scale;
     return TextStyle(
@@ -417,6 +428,10 @@ class Skin {
     TextStyle uiStyle(double size, FontWeight w, [Color? color]) =>
         ui(size: size, weight: w, color: color ?? inkColor);
     final pill = RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.pill));
+    // In a scene (scene_crafted.dart): its sheets, dialogs, menus and
+    // drawer edged in its material, its own knob, its own buttons.
+    final scene = palette.scene;
+    ShapeBorder edged(BorderRadius r) => scene == null ? RoundedRectangleBorder(borderRadius: r) : SceneEdge(scene, borderRadius: r);
 
     return ThemeData(
       useMaterial3: true,
@@ -441,7 +456,7 @@ class Skin {
         thumbColor: dark ? amberSoft : slide,
         overlayColor: amber.withValues(alpha: 0.12),
         trackShape: const InsetTrackShape(),
-        thumbShape: const PillThumbShape(),
+        thumbShape: scene == null ? const PillThumbShape() : SceneKnobShape(scene),
         overlayShape: const RoundSliderOverlayShape(overlayRadius: 20),
         tickMarkShape: SliderTickMarkShape.noTickMark,
         activeTickMarkColor: Colors.transparent,
@@ -487,15 +502,13 @@ class Skin {
         dragHandleColor: inkColor.withValues(alpha: 0.22),
         dragHandleSize: const Size(36, 4),
         modalBarrierColor: Colors.black.withValues(alpha: 0.45),
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(Radii.card)),
-        ),
+        shape: edged(const BorderRadius.vertical(top: Radius.circular(Radii.card))),
         clipBehavior: Clip.antiAlias,
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: sheet,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.card)),
+        shape: edged(BorderRadius.circular(Radii.card)),
         titleTextStyle: TextStyle(
           fontFamily: titleFamily,
           fontSize: 24,
@@ -516,7 +529,7 @@ class Skin {
       popupMenuTheme: PopupMenuThemeData(
         color: sheet,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.row)),
+        shape: edged(BorderRadius.circular(Radii.row)),
         textStyle: uiStyle(15, FontWeight.w500),
         labelTextStyle: WidgetStatePropertyAll(uiStyle(15, FontWeight.w500)),
       ),
@@ -571,13 +584,19 @@ class Skin {
           shape: pill,
           padding: const EdgeInsets.symmetric(horizontal: Gap.xl, vertical: 14),
           textStyle: uiStyle(15, FontWeight.w700),
-          // On the board: scribbled in with chalk, a chalk rim round it.
+          // On the board: scribbled in with chalk, a chalk rim round it. In
+          // a scene with controls of its own: its glass, slate or leather.
           backgroundBuilder: palette.scene == Scene.sketch
               ? (context, states, child) => CustomPaint(
                     painter: states.contains(WidgetState.disabled) ? null : SketchFillPainter(amber),
                     child: child,
                   )
-              : null,
+              : scene != null
+                  ? (context, states, child) => CustomPaint(
+                        painter: states.contains(WidgetState.disabled) ? null : SceneFillPainter(scene, amber),
+                        child: child,
+                      )
+                  : null,
         ),
       ),
       textButtonTheme: TextButtonThemeData(
@@ -590,7 +609,21 @@ class Skin {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: inkColor,
-          side: BorderSide(color: outline),
+          // In a scene with controls of its own: its silver, or its gilt.
+          side: BorderSide(
+            color: switch (scene) {
+              null => outline,
+              Scene.blackRose => const Color(0x99DDE4F4),
+              Scene.silverDragon => const Color(0x99DCE6F6),
+              Scene.oldTome => const Color(0xAAD2AA5C),
+              Scene.forest => const Color(0x995E9A4A),
+              Scene.silverWitch => const Color(0x99C8D4E8),
+              Scene.solar => const Color(0x99FFCA70),
+              Scene.dungeon => const Color(0x997A6656),
+              Scene.sketch => const Color(0x99EDE9E0),
+            },
+            width: scene == null ? 1 : 1.2,
+          ),
           shape: pill,
           padding: const EdgeInsets.symmetric(horizontal: Gap.xl, vertical: 14),
           textStyle: uiStyle(15, FontWeight.w600),
@@ -610,9 +643,7 @@ class Skin {
         backgroundColor: sheet,
         surfaceTintColor: Colors.transparent,
         width: 300,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.horizontal(right: Radius.circular(Radii.card)),
-        ),
+        shape: edged(const BorderRadius.horizontal(right: Radius.circular(Radii.card))),
       ),
       tooltipTheme: TooltipThemeData(
         decoration: BoxDecoration(
@@ -1017,7 +1048,70 @@ class Palette {
     scene: Scene.sketch,
   ));
 
-  static final scenes = [forestScene, silverWitch, solar, dungeon, sketch];
+  /// Black roses at a moonlit window: silver type, a blood-rose accent.
+  static final blackRose = readable(const Palette(
+    id: 'scene-black-rose',
+    label: 'Black rose',
+    day: [Color(0xFF0D0F1A), Color(0xFF0A0C16), Color(0xFF080911), Color(0xFF040509)],
+    night: [Color(0xFF0D0F1A), Color(0xFF0A0C16), Color(0xFF080911), Color(0xFF040509)],
+    accent: Color(0xFFD45C74),
+    accentSoft: Color(0xFFE88A9C),
+    accentDeep: Color(0xFF8E2438),
+    onAccent: Color(0xFF1A0609),
+    nightCapsule: Color(0xF2151828),
+    nightSheet: Color(0xFF080A13),
+    // Moonlit silver.
+    nightInk: Color(0xFFEEF1FA),
+    nightInkSoft: Color(0xFFC3CAE0),
+    nightInkFaint: Color(0xFF8E96AE),
+    only: Brightness.dark,
+    scene: Scene.blackRose,
+  ));
+
+  /// Silver jewellery on black velvet: silver its light, sapphire its
+  /// stones.
+  static final silverDragon = readable(const Palette(
+    id: 'scene-silver-dragon',
+    label: 'Silver dragon',
+    day: [Color(0xFF14161C), Color(0xFF101217), Color(0xFF0C0E12), Color(0xFF07080A)],
+    night: [Color(0xFF14161C), Color(0xFF101217), Color(0xFF0C0E12), Color(0xFF07080A)],
+    // Polished silver, a little steel in it: white-silver under the words
+    // read aloud left them at 3.8:1.
+    accent: Color(0xFFAEBBD0),
+    accentSoft: Color(0xFFD4DCEA),
+    accentDeep: Color(0xFF66748C),
+    onAccent: Color(0xFF12151C),
+    nightCapsule: Color(0xF2181B22),
+    nightSheet: Color(0xFF0B0C10),
+    nightInk: Color(0xFFF2F5FA),
+    nightInkSoft: Color(0xFFC6CDD9),
+    nightInkFaint: Color(0xFF8D95A4),
+    only: Brightness.dark,
+    scene: Scene.silverDragon,
+  ));
+
+  /// An old book's worn leather: parchment type, gilt for its light.
+  static final oldTome = readable(const Palette(
+    id: 'scene-old-tome',
+    label: 'Old tome',
+    day: [Color(0xFF221509), Color(0xFF1C1108), Color(0xFF170E06), Color(0xFF0E0804)],
+    night: [Color(0xFF221509), Color(0xFF1C1108), Color(0xFF170E06), Color(0xFF0E0804)],
+    // Gilt.
+    accent: Color(0xFFD9B36A),
+    accentSoft: Color(0xFFE8CC92),
+    accentDeep: Color(0xFF8E6A26),
+    onAccent: Color(0xFF1C1206),
+    nightCapsule: Color(0xF22A1A0E),
+    nightSheet: Color(0xFF140C06),
+    // Parchment.
+    nightInk: Color(0xFFF2E6CF),
+    nightInkSoft: Color(0xFFD2C2A4),
+    nightInkFaint: Color(0xFF9C8D72),
+    only: Brightness.dark,
+    scene: Scene.oldTome,
+  ));
+
+  static final scenes = [forestScene, silverWitch, solar, dungeon, sketch, blackRose, silverDragon, oldTome];
 
   static final all = [forest, lavender, ocean, black, paper, ...designer, ...scenes];
 

@@ -89,6 +89,7 @@ class ListeningPrefs {
     this.sort = LibrarySort.recent,
     this.bookColours = true,
     this.animations = true,
+    this.sceneOnPage = false,
     this.naturalVoices,
     this.exportFolder,
     this.backupEvery = 'off',
@@ -451,6 +452,11 @@ class ListeningPrefs {
   /// animations".
   bool animations;
 
+  /// In a scene theme, its painting behind the page being read (under a
+  /// dark wash, so the words read), with the app's own page tone; off:
+  /// the page plain, as it always was.
+  bool sceneOnPage;
+
   /// Natural voices: null until the reader has been asked, then whether
   /// they want them offered. Declined, the app never suggests them.
   bool? naturalVoices;
@@ -635,6 +641,7 @@ class ListeningPrefs {
         'sort': sort.name,
         'bookColours': bookColours,
         if (!animations) 'animations': false,
+        if (sceneOnPage) 'sceneOnPage': true,
         if (naturalVoices != null) 'naturalVoices': naturalVoices,
         if (exportFolder != null) 'exportFolder': exportFolder!.toJson(),
         if (backupEvery != 'off') 'backupEvery': backupEvery,
@@ -763,6 +770,7 @@ class ListeningPrefs {
             LibrarySort.recent,
         bookColours: json['bookColours'] != false,
         animations: json['animations'] != false,
+        sceneOnPage: json['sceneOnPage'] == true,
         naturalVoices: json['naturalVoices'] as bool?,
         exportFolder: PickedFolder.fromJson(json['exportFolder']),
         backupEvery: json['backupEvery'] as String? ?? 'off',

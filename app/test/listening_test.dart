@@ -226,18 +226,23 @@ void main() {
       await player.stop();
     });
 
-    test('with a natural voice, a start makes the first piece of its sentence alone, then the rest', () async {
+    test('with a natural voice, a start makes the first piece of its sentence alone, then the rest at its commas',
+        () async {
       final worker = _Worker();
       NeuralEngine.workerForTests = worker.start;
       final player = scheduler(voice: 'neural:en_US-kristin-medium');
       addTearDown(player.dispose);
       final long = text.indexOf(_long);
       final pieces = clausePieces(_long);
+      // The rest, cut at its commas as the scheduler cuts it.
+      final rest = clausePieces(_long.substring(pieces[1].start), over: 120, min: 50);
+      expect(rest.length, greaterThan(1));
+      final parts = 1 + rest.length;
       unawaited(player.play(long));
-      await _until(() => worker.said.length >= 2 && count('playerEnqueue') >= 2);
-      expect(worker.said.take(2), [pieces.first.text, _long.substring(pieces[1].start)],
-          reason: 'the first piece is made and queued before the rest');
-      expect(count('playerEnqueue'), greaterThanOrEqualTo(2), reason: 'each part queued as it is made');
+      await _until(() => worker.said.length >= parts && count('playerEnqueue') >= parts);
+      expect(worker.said.take(parts), [pieces.first.text, for (final p in rest) p.text],
+          reason: 'the first piece is made and queued before the rest, and the rest a piece at a time');
+      expect(count('playerEnqueue'), greaterThanOrEqualTo(parts), reason: 'each part queued as it is made');
       expect(player.unit.value, long);
       await player.stop();
     });
