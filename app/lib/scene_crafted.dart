@@ -854,7 +854,7 @@ bool paintBrandRim(Canvas c, Rect box, Path shape, Scene scene) {
 Offset? _cameoAt(Scene scene) => switch (scene) {
       Scene.blackRose => const Offset(0.84, 0.2),
       Scene.oldTome => const Offset(0.5, 0.1),
-      Scene.silverDragon => const Offset(0.5, 0.36),
+      Scene.silverDragon => const Offset(0.6, 0.25),
       Scene.forest => const Offset(0.45, 0.55),
       Scene.silverWitch => const Offset(0.4, 0.25),
       Scene.solar => const Offset(0.22, 0.38),
