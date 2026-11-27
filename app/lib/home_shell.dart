@@ -10,6 +10,7 @@ import 'ai/memory/memory_background.dart';
 import 'ai/memory/memory_service.dart';
 import 'ai/memory/series_store.dart';
 import 'app_update.dart';
+import 'eleven_labs.dart';
 import 'play_update.dart';
 import 'auto_backup.dart';
 import 'auto_download.dart';
@@ -101,6 +102,9 @@ Future<OpenLibrary> _open(String dir) async {
   final internal = await took('sources folder', SourcesBridge.sourcesRoot());
   // So do the passwords (Secrets), moved the first time they are read.
   if (internal != null) Secrets.home = Directory(internal);
+  // ElevenLabs voices on the reader's own key: the key and its voices, read
+  // before a book asks for its voice (not in the Play build yet).
+  if (!playBuild) unawaited(ElevenLabs.instance.open(Directory(dir)));
   final sources = await took('sources', SourceStore.open(Directory(internal ?? dir), legacyRoot: Directory(dir)));
   // Sources ask as the phone's own browser does (see Net.userAgent): with
   // the agent kept last run, the web view asked again once the shelf is up.

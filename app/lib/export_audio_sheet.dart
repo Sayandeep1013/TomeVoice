@@ -10,6 +10,7 @@ import 'book_tint.dart';
 import 'export_audio.dart';
 import 'listen_sheet.dart' show trimSpeed;
 import 'listening_session.dart';
+import 'eleven_labs.dart';
 import 'neural_voices.dart';
 import 'prefs.dart';
 import 'scheduler.dart';
@@ -216,6 +217,9 @@ class _SaveSheetState extends State<_SaveSheet> {
     return s == null ? null : Duration(milliseconds: (p.chars * s.workMs).round());
   }
 
+  /// 12345 as "12,345".
+  static String _thousands(int n) => n.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
+
   String _voiceLabel(String? name) {
     final natural = neuralVoiceFor(name);
     if (natural != null) return '${natural.name}, a natural voice';
@@ -285,6 +289,8 @@ class _SaveSheetState extends State<_SaveSheet> {
     // The voices the book's cast gives its characters (cast.dart).
     final cast = {...?_voice.speakers?.voices}..removeAll([narrator, dialogue]);
     final natural = isNeural(narrator) || isNeural(dialogue) || cast.any(isNeural);
+    // ElevenLabs bills each character the first time it is made.
+    final eleven = isEleven(narrator) || isEleven(dialogue) || cast.any(isEleven);
     final short = _free >= 0 && _free < spaceWanted(bytes);
     final tooLong = length > maxExportLength;
     final faint = Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)).copyWith(height: 1.4);
@@ -360,6 +366,14 @@ class _SaveSheetState extends State<_SaveSheet> {
                       ' at ${trimSpeed(settings.speedScale)}×, with your word gap, pauses and pronunciations: '
                       'the current voice and settings, as you hear them.',
             ),
+            if (eleven)
+              note(
+                Icons.toll_rounded,
+                'ElevenLabs charges your account for every character not made before: about '
+                '${_thousands((plan.chars * ElevenLabs.instance.model.creditsPerChar).round())} credits '
+                'for this, at most. Sentences already heard cost nothing again.',
+                color: Skin.cautionOn(context),
+              ),
             if (natural)
               note(
                 Icons.thermostat_rounded,

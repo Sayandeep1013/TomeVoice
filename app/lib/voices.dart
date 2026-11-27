@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import 'eleven_labs.dart';
 import 'neural_voices.dart';
 import 'speech_service.dart';
 
@@ -150,6 +151,17 @@ class VoiceCatalog extends ChangeNotifier {
     for (final v in all) {
       if (v.name == name) return v;
     }
+    // An ElevenLabs voice: listed apart (the picker's own row), found here
+    // so the voice in use shows as chosen.
+    final eleven = ElevenLabs.instance.byVoiceName(name);
+    if (eleven != null) {
+      return VoiceInfo(
+          name: eleven.voiceName,
+          locale: eleven.language.isEmpty ? 'en' : eleven.language,
+          quality: 500,
+          networkRequired: true,
+          installed: true);
+    }
     return null;
   }
 
@@ -192,7 +204,7 @@ class VoiceCatalog extends ChangeNotifier {
   /// Why a [language] book cannot be read aloud here, or null: no voice
   /// (of the phone's engine, or natural) reads its letters.
   String? noVoiceFor(String language, String? voiceName) {
-    if (!loaded || !ownLetters(language) || isNeural(voiceName)) return null;
+    if (!loaded || !ownLetters(language) || isNeural(voiceName) || isEleven(voiceName)) return null;
     final v = byName(voiceName);
     if (v != null && readsLettersOf(v.language, language)) return null;
     final name = languageName(language);
@@ -326,6 +338,8 @@ class VoiceCatalog extends ChangeNotifier {
   String friendlyName(VoiceInfo v) {
     final natural = neuralVoiceFor(v.name);
     if (natural != null) return naturalName(natural);
+    final eleven = ElevenLabs.instance.byVoiceName(v.name);
+    if (eleven != null) return '${eleven.name} · ElevenLabs';
     if (v.variant == 'Default') return 'Default voice';
     if (!RegExp(r'^[A-Z0-9]{2,5}$').hasMatch(v.variant)) return v.variant;
     final same = [
