@@ -225,7 +225,7 @@ List<Color> darkBarsOf(Palette p, Brightness b) {
 Map<String, List<Color>> _sliderGroundsOf(Palette p) => {
       'a light sheet or capsule': [
         p.daySheet,
-        Color.alphaBlend(Skin.raisedDay, p.daySheet),
+        Color.alphaBlend(Skin.raised, p.daySheet),
         for (final g in groundOf(p, Brightness.light)) Color.alphaBlend(p.dayCapsule, g),
       ],
       'the dark bar': darkBarsOf(p, Brightness.light),

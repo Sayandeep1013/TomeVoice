@@ -171,6 +171,9 @@ Palette _palette(OwnColours c) {
     nightCapsule: Color.lerp(c.page, Colors.white, 0.12)!.withAlpha(0xF2),
     nightSheet: deepSheet,
     daySheet: paleSheet,
+    // Cards on the reader's own page stay white: its type and accent are
+    // fitted to them as they were.
+    dayCapsule: const Color(0xF2FFFFFF),
     only: light ? Brightness.light : Brightness.dark,
     dayInk: ink(0),
     dayInkSoft: ink(0.3),

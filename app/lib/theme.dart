@@ -215,13 +215,10 @@ class Skin {
   static Color outlineOn(BuildContext c) =>
       isDark(c) ? Colors.white.withValues(alpha: 0.09) : capsuleEdge;
 
-  /// Something raised on a sheet (a choice, a voice row): a little lighter
-  /// than the sheet, by night and by day (by day half-way to white, where a
-  /// faint white did not show; never a slab of it).
+  /// Something raised on a sheet (a choice, a voice row).
   static Color raisedOn(BuildContext c) => raisedFor(Theme.of(c).brightness);
-  static Color raisedFor(Brightness b) => b == Brightness.dark ? raised : raisedDay;
+  static Color raisedFor(Brightness b) => raised;
   static final raised = Colors.white.withValues(alpha: 0.07);
-  static const raisedDay = Color(0x80FFFFFF);
 
   /// The discs for the prev/next pair: by day in the theme's own tint.
   static Color disc(BuildContext c) =>
