@@ -385,6 +385,8 @@ class _Voices extends SpeechService {
     double rate = 1.0,
     double pitch = 1.0,
     bool urgent = true,
+    String? previousText,
+    String? nextText,
   }) async {
     asked.add((text: text, rate: rate));
     await Future<void>.delayed(const Duration(milliseconds: 5));

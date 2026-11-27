@@ -2280,6 +2280,8 @@ class _NaturalFails extends SpeechService {
     double rate = 1.0,
     double pitch = 1.0,
     bool urgent = true,
+    String? previousText,
+    String? nextText,
   }) async {
     asked.add(voiceName);
     if (isNeural(voiceName)) throw Exception('the model would not load');

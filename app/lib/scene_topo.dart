@@ -223,7 +223,7 @@ void _topoButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radi
     c.clipRRect(rr);
     final ring = _stroke((strong ? Colors.white : t.line).withValues(alpha: strong ? 0.16 : 0.12), 0.7);
     for (var i = 1; i <= 4; i++) {
-      final d = i * math.min(4.0, r.shortestSide * 0.09);
+      final d = math.min(4.0, r.shortestSide * 0.09) * i;
       if (d * 2 >= r.shortestSide) break;
       c.drawRRect(rr.deflate(d).shift(Offset(d * 0.35, d * 0.2)), ring);
     }

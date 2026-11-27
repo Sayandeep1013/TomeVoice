@@ -159,6 +159,8 @@ class _Voices extends SpeechService {
     double rate = 1.0,
     double pitch = 1.0,
     bool urgent = true,
+    String? previousText,
+    String? nextText,
   }) async {
     if (_busy > 0) overlapped = true;
     _busy++;
