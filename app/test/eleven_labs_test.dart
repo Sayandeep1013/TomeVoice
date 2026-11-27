@@ -192,6 +192,25 @@ void main() {
     expect(ElevenLabs.said(404, '{}'), contains('not in your account'));
   });
 
+  test('each sentence is sent with the ones either side, for one voice and tone across them', () async {
+    await eleven.setKey('good-key');
+    await eleven.synthesise(
+        voiceId: 'v1', text: 'The middle one.', speed: 1, outDir: tmp.path, previousText: 'The first one.', nextText: 'The last one.');
+    expect(fake.lastBody!['previous_text'], 'The first one.');
+    expect(fake.lastBody!['next_text'], 'The last one.');
+    await eleven.synthesise(voiceId: 'v1', text: 'Alone.', speed: 1, outDir: tmp.path);
+    expect(fake.lastBody!.containsKey('previous_text'), isFalse);
+    expect(fake.lastBody!.containsKey('next_text'), isFalse);
+  });
+
+  test('a failure that will likely pass (the network, busy, its own trouble) is told from one that will not', () {
+    expect(const ElevenError('x').passing, isTrue);
+    expect(const ElevenError('x', status: 429).passing, isTrue);
+    expect(const ElevenError('x', status: 503).passing, isTrue);
+    expect(const ElevenError('x', status: 401).passing, isFalse);
+    expect(const ElevenError('x', status: 402).passing, isFalse);
+  });
+
   test('no key: says where to add one, and asks nothing', () async {
     await expectLater(
       eleven.synthesise(voiceId: 'v2', text: 'Hello.', speed: 1, outDir: tmp.path),

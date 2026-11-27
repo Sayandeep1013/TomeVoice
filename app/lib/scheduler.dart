@@ -988,6 +988,14 @@ class PlaybackScheduler {
     if (natural.isEmpty) return false;
     if (natural.contains(narrator) && fallbackVoiceOf?.call() == null) return false;
     _failed.addAll(natural);
+    // ElevenLabs out of reach for now (not the key, the plan or the
+    // credits): asked again in a while, so a tunnel does not lose the
+    // voice for the rest of the book.
+    final passing = e is ElevenError && e.passing;
+    if (passing) {
+      final back = [for (final v in natural) if (isEleven(v)) v];
+      Timer(const Duration(minutes: 2), () => _failed.removeAll(back));
+    }
     VoiceLog.instance.note('fallback', {
       'from': natural.first,
       'to': fallbackVoiceOf?.call() ?? '',
@@ -998,8 +1006,8 @@ class PlaybackScheduler {
     // ElevenLabs says why (credits, the key, the network).
     notice.value = e is ElevenError
         ? (natural.contains(narrator)
-            ? "${e.message} The phone's own voice reads on."
-            : '${e.message} The narrator reads the dialogue.')
+            ? "${e.message} The phone's own voice reads on${passing ? ' for now' : ''}."
+            : '${e.message} The narrator reads the dialogue${passing ? ' for now' : ''}.')
         : natural.contains(narrator)
         ? "$name could not speak on this phone, so the phone's own voice reads on."
         : character
@@ -1097,6 +1105,15 @@ class PlaybackScheduler {
         // alone, then the rest.
         final plain = quoted == null || (open != true && !text.contains(_quoteMark));
         final cut = quickStart && _chunks.isEmpty && plain ? firstClauseEnd(text) : -1;
+        // An ElevenLabs voice is told the sentences either side of the one
+        // it says (or the rest of it, for a first clause made alone), so it
+        // carries the reading on in one voice and tone rather than saying
+        // each sentence cold. They are not charged for; nothing else uses
+        // them.
+        String? around(int j) =>
+            !isEleven(narrator) || j < 0 || j >= units.length ? null : (respell?.call(units[j]) ?? Respelled.same(units[j].text)).text;
+        final before = around(i - 1);
+        final after = around(i + 1);
         var headSpeechMs = 0;
         if (cut > 0) {
           final head = await makeSentence(
@@ -1111,6 +1128,8 @@ class PlaybackScheduler {
             levelDb: _levelDb,
             urgent: true,
             stale: () => gen != _gen,
+            previousText: before,
+            nextText: isEleven(narrator) ? text.substring(cut) : null,
           );
           if (head == null || gen != _gen) return;
           if (!await _queue(gen, i, head, said.changed ? _onPage(head.timings, said) : head.timings,
@@ -1165,6 +1184,8 @@ class PlaybackScheduler {
           levelDb: _levelDb,
           urgent: urgent || cut > 0,
           stale: () => gen != _gen,
+          previousText: cut > 0 && isEleven(narrator) ? text.substring(0, cut + last.start) : before,
+          nextText: after,
         );
         if (r == null || gen != _gen) return;
         // The rest's words, placed in the whole sentence.
@@ -1252,9 +1273,9 @@ class PlaybackScheduler {
         // A natural voice that cannot speak (a broken download, too little
         // memory, its worker gone): the same sentence again in the phone's
         // voice, not skipped.
-        // ElevenLabs busy (too many at once): the same sentence again, after
-        // a breath, twice, before it counts.
-        if (e is ElevenError && e.status == 429 && retries < 2) {
+        // ElevenLabs busy, or out of reach for a moment: the same sentence
+        // again, after a breath, twice, before it counts.
+        if (e is ElevenError && e.passing && retries < 2) {
           retries++;
           await Future<void>.delayed(Duration(milliseconds: 900 * retries));
           continue;
@@ -1652,6 +1673,8 @@ Future<RenderedSpeech?> makeSentence({
   double? levelDb,
   bool urgent = true,
   bool Function()? stale,
+  String? previousText,
+  String? nextText,
 }) async {
   final s = settings;
   // A sentence in the middle of a long quote has no marks of its own.
@@ -1660,6 +1683,8 @@ Future<RenderedSpeech?> makeSentence({
           text: text,
           engineId: engineId,
           voiceName: narrator,
+          previousText: previousText,
+          nextText: nextText,
           rate: s.speedScale,
           pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
           urgent: urgent,

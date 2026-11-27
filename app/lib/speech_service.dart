@@ -108,6 +108,8 @@ class SpeechService {
     double rate = 1.0,
     double pitch = 1.0,
     bool urgent = true,
+    String? previousText,
+    String? nextText,
   }) async {
     final previous = _synthBusy;
     final gate = Completer<void>();
@@ -129,6 +131,8 @@ class SpeechService {
           text: text,
           speed: rate,
           outDir: synthTempDir().path,
+          previousText: previousText,
+          nextText: nextText,
         );
       }
       // A natural voice is made here, not by the phone's speech engine.

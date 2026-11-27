@@ -107,6 +107,10 @@ class ElevenError implements Exception {
   final String message;
   final int? status;
 
+  /// It will likely pass: no answer (the network), busy, or ElevenLabs'
+  /// own trouble. Not so for the key, the plan or the credits.
+  bool get passing => status == null || status == 429 || status! >= 500;
+
   @override
   String toString() => message;
 }
@@ -258,13 +262,16 @@ class ElevenLabs extends ChangeNotifier {
     required String text,
     required double speed,
     required String outDir,
+    String? previousText,
+    String? nextText,
   }) async {
     final key = _secrets?[_keyName];
     if (key == null || key.isEmpty) {
       throw const ElevenError('No ElevenLabs key. Add yours under Voices, ElevenLabs.');
     }
     final m = model;
-    final made = await _kept(voiceId, m.id, text) ?? await _ask(key, voiceId, m.id, text);
+    final made = await _kept(voiceId, m.id, text) ??
+        await _ask(key, voiceId, m.id, text, previousText: previousText, nextText: nextText);
     final out = File('$outDir/eleven_${DateTime.now().microsecondsSinceEpoch}.wav');
     final s = speed.clamp(0.5, 3.0);
     final job = (pcm: made.pcm, speed: s);
@@ -302,11 +309,21 @@ class ElevenLabs extends ChangeNotifier {
     }
   }
 
-  Future<_Made> _ask(String key, String voiceId, String modelId, String text) async {
+  Future<_Made> _ask(String key, String voiceId, String modelId, String text, {String? previousText, String? nextText}) async {
+    // What comes before and after, so the voice goes on in one tone across
+    // sentences (ElevenLabs reads them for context and does not charge for
+    // them): the end of the one before, the start of the one after.
+    final before = previousText?.trim() ?? '';
+    final after = nextText?.trim() ?? '';
     final body = await _post(
       '/v1/text-to-speech/${Uri.encodeComponent(voiceId)}/with-timestamps?output_format=pcm_$rate',
       key,
-      {'text': text, 'model_id': modelId},
+      {
+        'text': text,
+        'model_id': modelId,
+        if (before.isNotEmpty) 'previous_text': before.length > 600 ? before.substring(before.length - 600) : before,
+        if (after.isNotEmpty) 'next_text': after.length > 600 ? after.substring(0, 600) : after,
+      },
     );
     if (body is! Map || body['audio_base64'] is! String) throw const ElevenError('ElevenLabs sent no speech.');
     final pcm = base64Decode(body['audio_base64'] as String);
