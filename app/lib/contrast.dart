@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:material_color_utilities/material_color_utilities.dart' show Hct;
 
+import 'highlights.dart' show highlightWash;
+import 'marks.dart' show MarkColour;
 import 'theme.dart';
 
 // Contrast as WCAG 2.2 measures it, and what every palette keeps readable
@@ -141,6 +143,21 @@ List<Color> readAloudOf(Palette p, Brightness b) => [
       ],
     ];
 
+/// Saved quotes on the ground of a page in the app's own colours: each
+/// colour's wash (in the accent as the page's text, or its fill), with the
+/// sentence being read washed over it too. The ink is read on these.
+List<Color> quotesOf(Palette p, Brightness b) {
+  final dark = b == Brightness.dark;
+  return [
+    for (final accent in [dark ? p.accentSoft : p.accentDeep, p.accent])
+      for (final c in MarkColour.values)
+        for (final g in groundOf(p, b)) ...[
+          Color.alphaBlend(highlightWash(c, accent: accent, dark: dark), g),
+          Color.alphaBlend(Skin.sentenceWashOf(p, b), Color.alphaBlend(highlightWash(c, accent: accent, dark: dark), g)),
+        ],
+  ];
+}
+
 /// What is read aloud on a page whose [shades] are its paper (or the app's
 /// ground), set in [ink] with its chapters in [accent]: the inks of the
 /// word being read, on [wordWash] alone, and of a heading being read, on
@@ -186,6 +203,7 @@ List<ContrastNeed> needsOf(Palette p, Brightness b) {
   on('the soft ink as an icon', p.inkSoftFor(b), picked, largeText);
   on('the faint ink as an icon', p.inkFaintFor(b), picked, largeText);
   on('the ink read aloud', p.inkFor(b), {'the words read aloud': readAloudOf(p, b)}, smallText);
+  on('the ink on a quote', p.inkFor(b), {'a saved quote': quotesOf(p, b)}, smallText);
   on('the warning red', p.dangerFor(b), surfaces, smallText);
   // The accent as text and as an icon: the deep one by day, the soft one by
   // night.
@@ -276,7 +294,7 @@ Palette _readableIn(Palette p, Brightness b) {
   Color fit(Color c, List<Color> on, [double needs = smallText]) => readableOn(c, on, needs, darker: !dark);
   final faint = fit(fit(q.inkFaintFor(b), surfaces), picked, largeText);
   final soft = _noWeaker(fit(fit(q.inkSoftFor(b), surfaces), picked, largeText), than: faint, dark: dark);
-  var ink = fit(fit(q.inkFor(b), [...surfaces, ...picked]), readAloudOf(q, b));
+  var ink = fit(fit(fit(q.inkFor(b), [...surfaces, ...picked]), readAloudOf(q, b)), quotesOf(q, b));
   // By night the ink is also what the dark bar and a snack bar say. By day
   // they are light, between the ground and the sheet: what reads on those
   // reads on them, with nothing moved.
