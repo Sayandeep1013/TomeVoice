@@ -43,6 +43,7 @@ Book ingestBytes(
       throw _pictures;
     case null:
   }
+  if (_isAcsm(filename, bytes)) throw _acsm;
   final kind = detectFormat(bytes, filename: filename, mime: mime);
   final bookId = id ?? bookIdOf(bytes);
   try {
@@ -289,6 +290,20 @@ UnsupportedDocumentException _unknownFormat(String? filename, Uint8List bytes) {
     'MOBI/AZW, FB2, RTF, HTML, Markdown and plain text.',
   );
 }
+
+/// An Adobe licence (Google Play Books, Kobo, a library loan): not the
+/// book, only a ticket to download it locked to Adobe's apps. Told apart
+/// by its name or its XML's first element, before it is taken for HTML.
+bool _isAcsm(String? filename, Uint8List bytes) {
+  if ((filename ?? '').toLowerCase().endsWith('.acsm')) return true;
+  final head = String.fromCharCodes(bytes.take(600).where((b) => b < 128));
+  return head.contains('<fulfillmentToken');
+}
+
+const _acsm = UnsupportedDocumentException(
+  'That is an Adobe .acsm licence, not the book: the shop sells this one locked (DRM), and '
+  'TomeVoice cannot open locked books. Books the shop sells without DRM download as EPUB or PDF.',
+);
 
 Book ingestString(
   String text, {

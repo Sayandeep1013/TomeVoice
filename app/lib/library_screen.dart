@@ -11,6 +11,7 @@ import 'book_screen.dart';
 import 'book_tint.dart';
 import 'categories_screen.dart';
 import 'duplicates.dart';
+import 'import_screen.dart';
 import 'library_store.dart';
 import 'listening_session.dart';
 import 'novel_link.dart';
@@ -363,6 +364,12 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
               onTap: () => Navigator.pop(ctx, 'files'),
             ),
             SheetAction(
+              icon: Icons.move_to_inbox_outlined,
+              label: 'From Kindle, Play Books, Kobo…',
+              detail: 'What other apps and shops let out, and how; highlights too',
+              onTap: () => Navigator.pop(ctx, 'import'),
+            ),
+            SheetAction(
               icon: Icons.content_paste_rounded,
               label: 'Paste a link or text',
               detail: 'A web article, or any words you copied',
@@ -379,6 +386,10 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
         await _pick();
       case 'paste':
         await _paste();
+      case 'import':
+        await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => ImportScreen(store: _store, onBooks: _pick),
+        ));
     }
   }
 
