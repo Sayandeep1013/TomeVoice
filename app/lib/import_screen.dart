@@ -150,9 +150,9 @@ class ImportScreen extends StatelessWidget {
                       action: 'Choose the metadata files',
                       onTap: () => unawaited(_highlights(context, store, _Kind.koreader)),
                     ),
-                    _Source(
+                    const _Source(
                       name: 'Kobo, Google Play Books, Libby',
-                      steps: const [
+                      steps: [
                         'Kobo (kobo.com, My Books, Export annotations), Google Play Books (notes saved to a Google '
                             'Doc in Drive) and Libby (Reading Journey, Export) can give out highlights, but they are '
                             'not read here yet.',
