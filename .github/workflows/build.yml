@@ -188,7 +188,7 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('app/pubspec.lock', 'tools/prepare_android.py', 'app/android_overlay/**') }}
+          key: gradle-${{ runner.os }}-${{ hashFiles('app/pubspec.lock', 'tools/prepare_android.py', 'app/android_overlay/**', 'app/android_overlay_play/**') }}
           restore-keys: gradle-${{ runner.os }}-
 
       - &show-toolchain
@@ -285,8 +285,11 @@ jobs:
             if grep -qE "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS|REQUEST_INSTALL_PACKAGES" "$M"; then
               echo "::error::the Play manifest asks for a permission Play forbids"; exit 1
             fi
+            # Play's in-app updates over the GitHub build's stand-in.
+            grep -q "AppUpdateManagerFactory" "$K/PlayUpdates.kt"
           else
             grep -q "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$M"
+            ! grep -q "AppUpdateManagerFactory" "$K/PlayUpdates.kt"
           fi
           grep -q 'android:dataExtractionRules="@xml/data_extraction_rules"' "$M"
           test -f android/app/src/main/res/xml/data_extraction_rules.xml
@@ -647,7 +650,7 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('app/pubspec.lock', 'tools/prepare_android.py', 'app/android_overlay/**') }}
+          key: gradle-${{ runner.os }}-${{ hashFiles('app/pubspec.lock', 'tools/prepare_android.py', 'app/android_overlay/**', 'app/android_overlay_play/**') }}
           restore-keys: gradle-${{ runner.os }}-
 
       - *show-toolchain

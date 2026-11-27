@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'app_update.dart';
+import 'play_update.dart';
 import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -204,4 +205,67 @@ Future<String> _download(String url, String name, ValueNotifier<double?> progres
     }
     if (await part.exists()) await part.delete();
   }
+}
+
+/// A newer TomeVoice on Google Play (the Play build): offer it. Update shows
+/// Play's own prompt and Play downloads it in the background while reading
+/// goes on; once it is down, [offerPlayRestart] installs it.
+///
+/// With [root], offered unasked as the app opens: the reader can skip this
+/// version, and Later waits a few days before offering it again.
+Future<void> offerPlayUpdate(BuildContext context, PlayUpdateInfo info, {Directory? root}) async {
+  if (info.downloaded) {
+    offerPlayRestart(context);
+    return;
+  }
+  // Play names a version only by its number: "Later" and "Skip" keep it.
+  final asUpdate = AppUpdate(version: 'play-${info.versionCode}', url: '', title: '');
+  final size = info.sizeMb;
+  final choice = await showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('New version available'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'A newer TomeVoice is on Google Play. '
+            '${size == null ? 'It downloads' : 'The $size MB download runs'} in the background while you read, '
+            'then a restart puts it in. Your library and settings stay as they are.',
+          ),
+          if (root != null) ...[
+            const SizedBox(height: Gap.s),
+            TextButton(onPressed: () => Navigator.pop(ctx, 'skip'), child: const Text('Skip this version')),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, 'later'), child: const Text('Later')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, 'update'), child: const Text('Update')),
+      ],
+    ),
+  );
+  if (root != null) {
+    if (choice == 'skip') await AppUpdates.skip(root, asUpdate);
+    if (choice == null || choice == 'later') await AppUpdates.putOff(root, asUpdate);
+  }
+  if (choice != 'update' || !context.mounted) return;
+  if (!await PlayUpdates.start() && context.mounted) {
+    showSnack(context, 'Google Play could not start the update. Try again from the Play Store.', long: true);
+  }
+}
+
+/// The new version is downloaded: a restart installs it. Shown until the
+/// reader taps Restart or closes the app (Play installs it then anyway).
+void offerPlayRestart(BuildContext context) {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  if (messenger == null) return;
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(
+      content: const Text('The new version is downloaded.'),
+      duration: const Duration(days: 1),
+      action: SnackBarAction(label: 'Restart', onPressed: () => unawaited(PlayUpdates.complete())),
+    ));
 }

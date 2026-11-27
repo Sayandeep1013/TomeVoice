@@ -49,6 +49,9 @@ class MainActivity : FlutterActivity() {
     /** Speaking into the journal (Dictation.kt): this activity's, as the microphone is asked of it. */
     private var dictation: Dictation? = null
 
+    /** Play's in-app updates in the Play build; a stand-in in the GitHub one. */
+    private var playUpdates: PlayUpdates? = null
+
     /** This activity came to an engine already running Dart (see onCreate). */
     private var rejoined = false
 
@@ -195,6 +198,8 @@ class MainActivity : FlutterActivity() {
         channel = ch
         dictation?.close()
         dictation = Dictation(this, flutterEngine)
+        playUpdates?.close()
+        playUpdates = PlayUpdates(this, flutterEngine)
         ch.setMethodCallHandler { call, result ->
             // Asking to show the notification is the activity's part of it.
             if (call.method == "session" && call.argument<Boolean>("active") == true) askToNotify()
@@ -1443,6 +1448,8 @@ class MainActivity : FlutterActivity() {
         stopSample()
         dictation?.close()
         dictation = null
+        playUpdates?.close()
+        playUpdates = null
         // The reading, the voice, the player and a save as audio are the
         // engine's and carry on (ReadingCore): leaving the app, by a swipe
         // from Recents too, does not stop a book being read or saved, nor

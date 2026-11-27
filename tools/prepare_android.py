@@ -73,6 +73,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -90,6 +91,12 @@ PDFBOX = 'implementation("com.tom-roush:pdfbox-android:2.0.27.0")'
 # Web novels: WorkManager runs the check for new chapters with the app closed
 # (NovelCheckWorker.kt). Apache-2.0 (AndroidX).
 WORK = 'implementation("androidx.work:work-runtime:2.10.0")'
+
+# The Play build only: Google Play's in-app updates (PlayUpdates.kt in
+# android_overlay_play), so the app itself says a new version is out and
+# installs it with a restart. The GitHub build updates from GitHub and has
+# a stand-in without this library.
+PLAY_UPDATE = 'implementation("com.google.android.play:app-update:2.1.0")'
 
 # The standard (single-threaded) build, not -openmp: OCR runs beside reading
 # aloud, and the OpenMP one would take every core from the voice. Its native
@@ -495,7 +502,7 @@ SIGNING_BLOCK = """    signingConfigs {
 """
 
 
-def patch_gradle(path: Path, signing: bool, app_id: str = APPLICATION_ID) -> str:
+def patch_gradle(path: Path, signing: bool, app_id: str = APPLICATION_ID, play: bool = False) -> str:
     text = path.read_text(encoding="utf-8")
     original = text
     notes = []
@@ -549,6 +556,10 @@ def patch_gradle(path: Path, signing: bool, app_id: str = APPLICATION_ID) -> str
         else:
             text = text.rstrip() + "\n" + JITPACK_GROOVY + f"\ndependencies {{\n    {TESSERACT_GROOVY}\n}}\n"
         notes.append("tesseract (OCR)")
+
+    if play and PLAY_UPDATE not in text and path.suffix == ".kts":
+        text = text.rstrip() + f"\n\ndependencies {{\n    {PLAY_UPDATE}\n}}\n"
+        notes.append("play in-app updates")
 
     if JUMP3R not in text and JUMP3R_GROOVY not in text:
         if path.suffix == ".kts":
@@ -605,6 +616,11 @@ def main() -> int:
     play = os.environ.get("TV_STORE") == "play"
     if play:
         print("store: Google Play (no self-updater, no battery exemption request)")
+        # Play's own sources over the GitHub build's stand-ins (PlayUpdates.kt).
+        play_overlay = app_dir / "android_overlay_play"
+        if play_overlay.is_dir():
+            shutil.copytree(play_overlay, app_dir / "android", dirs_exist_ok=True)
+            print("store: Play's in-app updates")
     print(patch_manifest(manifest, label, play=play))
 
     gradle_candidates = [
@@ -623,7 +639,7 @@ def main() -> int:
         print("gradle: TV_KEYSTORE not set — release APK uses the throwaway debug key")
     elif not Path(keystore).exists():
         print(f"gradle: {keystore} is written just before the build")
-    print(patch_gradle(gradle, signing, app_id))
+    print(patch_gradle(gradle, signing, app_id, play=play))
     print(patch_gradle_properties(app_dir / "android/gradle.properties"))
 
     return 0
