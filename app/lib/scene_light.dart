@@ -184,7 +184,7 @@ void _marble(Canvas c, Rect rect, {required int seed, double veins = 1, bool gol
     for (var i = 0; i < (2 * veins).ceil(); i++) {
       final start = Offset(rect.left + r.nextDouble() * rect.width * 0.3, rect.top + r.nextDouble() * rect.height);
       vein(start, -0.3 + r.nextDouble() * 0.6, rect.width * 0.9, 0.8 + r.nextDouble() * 0.6,
-          const Color(0xFFC9A04E).withValues(alpha: 0.75), 1);
+          const Color(0xFFC9A04E).withValues(alpha: rect.width > 300 ? 0.45 : 0.75), 1);
     }
   }
   c.restore();
