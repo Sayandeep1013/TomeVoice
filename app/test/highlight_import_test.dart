@@ -1,7 +1,12 @@
 // Highlights from other reading apps: Kindle's My Clippings.txt and
 // KOReader's notes beside a book, read, and placed in the library's books.
 
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqlite3/sqlite3.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 import 'package:tomevoice_spike/highlight_import.dart';
 
@@ -127,6 +132,95 @@ void main() {
     test('words this edition does not have: nowhere', () {
       expect(placeIn(units, 'Fear is the mind-killer.'), isNull);
       expect(placeIn(units, '   '), isNull);
+    });
+  });
+
+  group("Kobo's KoboReader.sqlite", () {
+    test("highlights and notes with their book's title and author; dog-ears and hidden ones left out", () {
+      final dir = Directory.systemTemp.createTempSync('tv_kobo');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final path = '${dir.path}/KoboReader.sqlite';
+      final db = sqlite3.open(path);
+      db.execute('CREATE TABLE content (ContentID TEXT, Title TEXT, Attribution TEXT)');
+      db.execute('CREATE TABLE Bookmark (BookmarkID TEXT, VolumeID TEXT, ContentID TEXT, Text TEXT, Annotation TEXT, '
+          'DateCreated TEXT, ChapterProgress REAL, Hidden TEXT, Type TEXT)');
+      db.execute("INSERT INTO content VALUES ('uuid-1', 'The Hobbit', 'J. R. R. Tolkien')");
+      final add = db.prepare('INSERT INTO Bookmark VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      add.execute(['a', 'uuid-1', 'uuid-1!c1', 'In a hole in the ground there lived a hobbit.', 'First line', '2025-03-03T21:14:05.000', 0.1, 'false', 'note']);
+      add.execute(['b', 'uuid-1', 'uuid-1!c1', null, null, '2025-03-03T21:20:00.000', 0.5, 'false', 'dogear']);
+      add.execute(['c', 'uuid-1', 'uuid-1!c2', 'Hidden away.', null, '2025-03-04T10:00:00.000', 0.2, 'true', 'highlight']);
+      add.execute(['d', 'file:///mnt/onboard/Herbert/Dune - Frank Herbert.epub', 'x', 'Fear is the mind-killer.', null, '2025-03-05T09:00:00.000', 0.3, 'false', 'highlight']);
+      add.dispose();
+      db.dispose();
+
+      final h = readKoboDatabase(path);
+      expect(h.map((e) => (e.title, e.author, e.text, e.note)), [
+        ('Dune', '', 'Fear is the mind-killer.', null),
+        ('The Hobbit', 'J. R. R. Tolkien', 'In a hole in the ground there lived a hobbit.', 'First line'),
+      ]);
+      expect(h.last.added, DateTime(2025, 3, 3, 21, 14, 5));
+    });
+  });
+
+  group("Libby's reading journey", () {
+    test('its highlights, notes and when, with the book; a note without words kept as a note', () {
+      final raw = jsonEncode({
+        'version': 1,
+        'readingJourney': {
+          'title': {'text': 'How to Take Smart Notes', 'titleId': '5796521'},
+          'author': 'Sönke Ahrens',
+        },
+        'highlights': [
+          {'timestamp': 1729898852000, 'chapter': '13       Share', 'percent': 0.82, 'color': '#FFB', 'quote': 'For every document I write.'},
+          {'timestamp': 1729898900000, 'quote': 'Writing is thinking.', 'note': 'Yes.'},
+          {'timestamp': 1729899000000, 'note': 'A thought of my own.'},
+        ],
+      });
+      final h = parseLibbyJourney(raw);
+      expect(h.map((e) => (e.title, e.author, e.text, e.note)), [
+        ('How to Take Smart Notes', 'Sönke Ahrens', 'For every document I write.', null),
+        ('How to Take Smart Notes', 'Sönke Ahrens', 'Writing is thinking.', 'Yes.'),
+        ('How to Take Smart Notes', 'Sönke Ahrens', '', 'A thought of my own.'),
+      ]);
+      expect(h.first.added, DateTime.fromMillisecondsSinceEpoch(1729898852000));
+      expect(parseLibbyJourney('not json'), isEmpty);
+    });
+  });
+
+  group("Google Play Books' notes Doc", () {
+    const md = '| ![Cover Image][image1] | *The Art of Thinking Clearly* Rolf Dobelli HarperCollins |\n'
+        '| :---- | :---- |\n'
+        '| This document is overwritten when you make changes in Play Books. |\n'
+        '# Annotations by color\n'
+        '## *Yellow*\n'
+        "|  *![][image2] The unsuccessful don't write books.* Harsh reality April 27, 2021 [13](http://play.google.com/books/reader?id=x&pg=GBS.PA13) |\n"
+        '| ----- |\n'
+        '# All your annotations\n'
+        '## *1: Survivorship Bias*\n'
+        "|  *![][image2] The unsuccessful don't write books.* Harsh reality April 27, 2021 [13](http://play.google.com/books/reader?id=x&pg=GBS.PA13) |\n"
+        '|  *![][image3] Costs 10\\\$ more.* May 2, 2021 [20](http://play.google.com/books/reader?id=x&pg=GBS.PA20) |\n'
+        '|  May 3, 2021 [21](http://play.google.com/books/reader?id=x&pg=GBS.PA21) |\n';
+
+    test('downloaded as Markdown: the title and author, each highlight once with its note; a bookmark left out', () {
+      final h = parsePlayBooksNotes(utf8.encode(md), fileName: 'Notes from The Art of Thinking Clearly.md');
+      expect(h.map((e) => (e.title, e.author, e.text, e.note)), [
+        ('The Art of Thinking Clearly', 'Rolf Dobelli', "The unsuccessful don't write books.", 'Harsh reality'),
+        ('The Art of Thinking Clearly', 'Rolf Dobelli', r'Costs 10$ more.', null),
+      ]);
+    });
+
+    test('downloaded as Word: the same, from its table cells and italic runs', () {
+      String run(String t, {bool italic = false}) =>
+          '<w:r>${italic ? '<w:rPr><w:i/></w:rPr>' : ''}<w:t xml:space="preserve">$t</w:t></w:r>';
+      String cell(String runs) => '<w:tc><w:p>$runs</w:p></w:tc>';
+      final xml = '<w:document><w:body><w:tbl><w:tr>${cell('')}${cell(run('The Art of Thinking Clearly', italic: true) + run(' Rolf Dobelli'))}</w:tr></w:tbl>'
+          '<w:tbl><w:tr>${cell(run('The unsuccessful don&apos;t write books.', italic: true) + run(' Harsh reality ') + run('April 27, 2021 ') + '<w:hyperlink>${run('13')}</w:hyperlink>')}</w:tr></w:tbl>'
+          '</w:body></w:document>';
+      final zip = Archive()..addArchiveFile(ArchiveFile.bytes('word/document.xml', utf8.encode(xml)));
+      final h = parsePlayBooksNotes(ZipEncoder().encodeBytes(zip), fileName: 'Notes.docx');
+      expect(h.map((e) => (e.title, e.author, e.text, e.note)), [
+        ('The Art of Thinking Clearly', 'Rolf Dobelli', "The unsuccessful don't write books.", 'Harsh reality'),
+      ]);
     });
   });
 }

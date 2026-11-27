@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:archive/archive.dart';
+import 'package:sqlite3/sqlite3.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'library_store.dart';
@@ -384,6 +388,216 @@ class LuaTable {
     _i = end + close.length;
     return text;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Kobo: .kobo/KoboReader.sqlite on the e-reader
+//
+// The query follows calibre's Kobo driver and export-kobo: Bookmark rows
+// (a highlight has Text; a note has an Annotation too; a dog-ear has
+// neither) joined to their book's row in content by VolumeID, which gives
+// its Title and Attribution (author). A sideloaded book's VolumeID is its
+// file ("file:///mnt/onboard/.../Dune.epub"), named after it when its
+// row has no title. Columns differ between firmwares (Hidden, Type), so
+// those are asked about first.
+
+/// The highlights and notes in a Kobo's database, read only.
+List<ForeignHighlight> readKoboDatabase(String path) {
+  final db = sqlite3.open(path, mode: OpenMode.readOnly);
+  try {
+    final cols = {for (final r in db.select('PRAGMA table_info(Bookmark)')) '${r['name']}'};
+    if (!cols.contains('VolumeID') || !cols.contains('Text')) return const [];
+    final hidden = cols.contains('Hidden') ? "AND (b.Hidden IS NULL OR b.Hidden IN ('false', 0))" : '';
+    final dogears = cols.contains('Type') ? "AND (b.Type IS NULL OR b.Type != 'dogear')" : '';
+    final note = cols.contains('Annotation') ? 'b.Annotation' : 'NULL';
+    final created = cols.contains('DateCreated') ? 'b.DateCreated' : 'NULL';
+    final order = cols.contains('ChapterProgress') ? 'b.VolumeID, b.ContentID, b.ChapterProgress' : 'b.VolumeID';
+    final rows = db.select(
+      'SELECT b.VolumeID AS volume, b.Text AS text, $note AS note, $created AS created, '
+      'book.Title AS title, book.Attribution AS author '
+      'FROM Bookmark b LEFT JOIN content book ON book.ContentID = b.VolumeID '
+      "WHERE ((b.Text IS NOT NULL AND b.Text != '') OR ($note IS NOT NULL AND $note != '')) $hidden $dogears "
+      'ORDER BY $order',
+    );
+    String? text(Object? v) {
+      final s = v is String ? v.trim() : '';
+      return s.isEmpty ? null : s;
+    }
+
+    return [
+      for (final r in rows)
+        ForeignHighlight(
+          title: text(r['title']) ?? _koboFileTitle('${r['volume']}'),
+          author: (text(r['author']) ?? '').split(',').first.trim(),
+          text: text(r['text']) ?? '',
+          note: text(r['note']),
+          added: DateTime.tryParse('${r['created'] ?? ''}'),
+        ),
+    ];
+  } finally {
+    db.dispose();
+  }
+}
+
+/// "file:///mnt/onboard/Herbert/Dune - Frank Herbert.epub": "Dune".
+String _koboFileTitle(String volume) {
+  final name = Uri.decodeComponent(volume.split('/').last);
+  final dot = name.lastIndexOf('.');
+  final bare = dot > 0 ? name.substring(0, dot) : name;
+  return bare.split(' - ').first.trim();
+}
+
+// ---------------------------------------------------------------------------
+// Libby: Reading Journey, Export Reading Data, Data (JSON)
+//
+// {"readingJourney": {"title": {"text": ...}, "author": ...},
+//  "highlights": [{"quote", "note"?, "chapter", "percent", "timestamp"}]}
+// as Libby writes it. Its title may be a plain string; a highlight may be a
+// note alone.
+
+List<ForeignHighlight> parseLibbyJourney(String raw) {
+  final Object? j;
+  try {
+    j = jsonDecode(raw.replaceFirst(String.fromCharCode(0xFEFF), ''));
+  } on FormatException {
+    return const [];
+  }
+  if (j is! Map) return const [];
+  final journey = j['readingJourney'] is Map ? j['readingJourney'] as Map : const {};
+  final t = journey['title'];
+  final title = (t is Map ? '${t['text'] ?? ''}' : '${t ?? ''}').trim();
+  final author = '${journey['author'] ?? ''}'.trim();
+  final list = j['highlights'];
+  if (list is! List || title.isEmpty) return const [];
+  return [
+    for (final h in list)
+      if (h is Map && ('${h['quote'] ?? ''}'.trim().isNotEmpty || '${h['note'] ?? ''}'.trim().isNotEmpty))
+        ForeignHighlight(
+          title: title,
+          author: author,
+          text: '${h['quote'] ?? ''}'.trim(),
+          note: '${h['note'] ?? ''}'.trim().isEmpty ? null : '${h['note']}'.trim(),
+          added: h['timestamp'] is num ? DateTime.fromMillisecondsSinceEpoch((h['timestamp'] as num).toInt()) : null,
+        ),
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Google Play Books: the book's Doc in Drive's "Play Books Notes" folder,
+// downloaded (File, Download) as Word (.docx) or Markdown (.md).
+//
+// The Doc: a table at its head, the cover and then the title in italics
+// with the author and publisher; then every highlight twice (by colour,
+// then by chapter), each in a table cell of its own: the words highlighted
+// in italics, the note, the date ("April 27, 2021") and the page as a link.
+// Its headings are in the reader's language, so nothing goes by them: the
+// cells are read, the first with italics and no date is the title, and a
+// highlight met twice is kept once.
+
+/// A table cell of the Doc: its runs of text, each italic or not.
+typedef _Cell = List<({String text, bool italic})>;
+
+List<ForeignHighlight> parsePlayBooksNotes(List<int> bytes, {String fileName = ''}) {
+  final zipped = bytes.length > 2 && bytes[0] == 0x50 && bytes[1] == 0x4B;
+  final cells = zipped ? _docxCells(bytes) : _markdownCells(utf8.decode(bytes, allowMalformed: true));
+  return _playBooksFrom(cells, fileName: fileName);
+}
+
+/// A date as the Doc writes one, in English or another language's order.
+final _docDate = RegExp(r'(\p{L}+\.? \d{1,2}, \d{4}|\d{1,2}\.? \p{L}+\.? \d{4}|\d{4}[-/.]\d{1,2}[-/.]\d{1,2})', unicode: true);
+
+List<ForeignHighlight> _playBooksFrom(List<_Cell> cells, {required String fileName}) {
+  String join(Iterable<String> parts) => parts.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  var title = '', author = '';
+  final found = <({String text, String? note})>[];
+  final seen = <String>{};
+  for (final cell in cells) {
+    final italic = join(cell.where((r) => r.italic).map((r) => r.text));
+    final plain = join(cell.where((r) => !r.italic).map((r) => r.text));
+    final date = _docDate.allMatches(plain).lastOrNull;
+    if (date == null) {
+      // The head: the title in italics, then its author.
+      if (title.isEmpty && italic.isNotEmpty) {
+        title = italic;
+        author = plain.split(' ').take(2).join(' ');
+      }
+      continue;
+    }
+    // A bookmark: a place, no words.
+    if (italic.isEmpty) continue;
+    // The note is what is left before the date; the page comes after it.
+    final note = plain.substring(0, date.start).trim();
+    if (!seen.add(normaliseForMatch(italic))) continue;
+    found.add((text: italic, note: note.isEmpty ? null : note));
+  }
+  // Without a title cell, the file's name ("Notes from Dune").
+  if (title.isEmpty) {
+    title = fileName
+        .replaceAll(RegExp(r'\.(docx|md)$', caseSensitive: false), '')
+        .replaceFirst(RegExp(r'^Notes from ', caseSensitive: false), '')
+        .trim();
+  }
+  return [for (final h in found) ForeignHighlight(title: title, author: author, text: h.text, note: h.note)];
+}
+
+/// The cells of a .docx's tables, each run marked italic or not (w:i in its
+/// run's properties), a hyperlink's runs included.
+List<_Cell> _docxCells(List<int> bytes) {
+  final Archive zip;
+  try {
+    zip = ZipDecoder().decodeBytes(bytes);
+  } on Object {
+    return const [];
+  }
+  final doc = zip.findFile('word/document.xml');
+  if (doc == null) return const [];
+  final xml = utf8.decode(doc.content, allowMalformed: true);
+  final cells = <_Cell>[];
+  for (final tc in RegExp(r'<w:tc>([\s\S]*?)</w:tc>').allMatches(xml)) {
+    final runs = <({String text, bool italic})>[];
+    for (final p in RegExp(r'<w:p[ >][\s\S]*?</w:p>').allMatches(tc.group(1)!)) {
+      for (final r in RegExp(r'<w:r[ >]([\s\S]*?)</w:r>').allMatches(p.group(0)!)) {
+        final body = r.group(1)!;
+        final italic = RegExp(r'<w:i(?: w:val="(?:true|1|on)")?\s*/>').hasMatch(body);
+        final text = [for (final t in RegExp(r'<w:t(?: [^>]*)?>([\s\S]*?)</w:t>').allMatches(body)) _unxml(t.group(1)!)].join();
+        if (text.isNotEmpty) runs.add((text: text, italic: italic));
+      }
+      runs.add((text: ' ', italic: false));
+    }
+    cells.add(runs);
+  }
+  return cells;
+}
+
+String _unxml(String s) =>
+    s.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"').replaceAll('&apos;', "'").replaceAll('&amp;', '&');
+
+/// The cells of a Markdown download's tables ("| ... |" rows), the
+/// *italic* parts marked; pictures, links' addresses and escapes left out.
+List<_Cell> _markdownCells(String md) {
+  final cells = <_Cell>[];
+  for (final line in md.split('\n')) {
+    final l = line.trim();
+    if (!l.startsWith('|') || RegExp(r'^\|[\s:|-]+\|?$').hasMatch(l)) continue;
+    final inner = l.substring(1, l.endsWith('|') && l.length > 1 ? l.length - 1 : l.length);
+    for (var cell in inner.split(RegExp(r'(?<!\\)\|'))) {
+      cell = cell
+          .replaceAll(RegExp(r'!\[[^\]]*\]\[[^\]]*\]|!\[[^\]]*\]\([^)]*\)'), '')
+          .replaceAllMapped(RegExp(r'\[([^\]]*)\]\([^)]*\)'), (m) => m.group(1)!)
+          .replaceAllMapped(RegExp(r'\\([\\`*_{}\[\]()#+\-.!$|~])'), (m) => m.group(1)!);
+      if (cell.trim().isEmpty) continue;
+      final runs = <({String text, bool italic})>[];
+      var at = 0;
+      for (final m in RegExp(r'\*([^*]+)\*').allMatches(cell)) {
+        if (m.start > at) runs.add((text: cell.substring(at, m.start), italic: false));
+        runs.add((text: m.group(1)!, italic: true));
+        at = m.end;
+      }
+      if (at < cell.length) runs.add((text: cell.substring(at), italic: false));
+      cells.add(runs);
+    }
+  }
+  return cells;
 }
 
 // ---------------------------------------------------------------------------

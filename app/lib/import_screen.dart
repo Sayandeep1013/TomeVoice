@@ -150,13 +150,39 @@ class ImportScreen extends StatelessWidget {
                       action: 'Choose the metadata files',
                       onTap: () => unawaited(_highlights(context, store, _Kind.koreader)),
                     ),
-                    const _Source(
-                      name: 'Kobo, Google Play Books, Libby',
-                      steps: [
-                        'Kobo (kobo.com, My Books, Export annotations), Google Play Books (notes saved to a Google '
-                            'Doc in Drive) and Libby (Reading Journey, Export) can give out highlights, but they are '
-                            'not read here yet.',
+                    _Source(
+                      name: 'Kobo highlights',
+                      steps: const [
+                        'Connect the Kobo to a computer (or the phone, with a USB cable) and copy the file '
+                            'KoboReader.sqlite from its hidden .kobo folder. It holds every highlight and note made on '
+                            'that Kobo, for its own books and ones you added.',
+                        'The highlights kobo.com exports (My Books, Export annotations) are not read here yet: their '
+                            'layout is not known well enough.',
                       ],
+                      action: 'Choose KoboReader.sqlite',
+                      onTap: () => unawaited(_highlights(context, store, _Kind.kobo)),
+                    ),
+                    _Source(
+                      name: 'Google Play Books highlights',
+                      steps: const [
+                        'In Play Books: your picture, Play Books settings, turn on "Save notes, highlights and '
+                            'bookmarks in Google Drive". Each book gets a Google Doc in the "Play Books Notes" folder '
+                            '(a book noted before is filled in once you add a note to it).',
+                        "Open the book's Doc in Google Docs, File, Download, Microsoft Word (.docx) or Markdown (.md), "
+                            'and choose that file here.',
+                      ],
+                      action: 'Choose the downloaded Doc',
+                      onTap: () => unawaited(_highlights(context, store, _Kind.playBooks)),
+                    ),
+                    _Source(
+                      name: 'Libby highlights',
+                      steps: const [
+                        'In Libby: Shelf, the book (or Timeline, for one returned), Reading Journey, Actions, Export '
+                            "Reading Data, Data. It saves a .json file with the book's highlights and notes.",
+                        'Its Spreadsheet export is not read here yet.',
+                      ],
+                      action: 'Choose the .json file',
+                      onTap: () => unawaited(_highlights(context, store, _Kind.libby)),
                     ),
                   ],
                 ),
@@ -169,7 +195,7 @@ class ImportScreen extends StatelessWidget {
   }
 }
 
-enum _Kind { kindle, koreader }
+enum _Kind { kindle, koreader, kobo, playBooks, libby }
 
 /// Highlights from [kind]'s files, picked, put into the library's books.
 Future<void> _highlights(BuildContext context, LibraryStore store, _Kind kind) async {
@@ -184,10 +210,12 @@ Future<void> _highlights(BuildContext context, LibraryStore store, _Kind kind) a
   final found = <ForeignHighlight>[];
   for (final f in files) {
     try {
-      final raw = await File(f.path).readAsString();
       found.addAll(switch (kind) {
-        _Kind.kindle => parseKindleClippings(raw),
-        _Kind.koreader => parseKoreaderSidecar(raw, fileName: f.name),
+        _Kind.kindle => parseKindleClippings(await File(f.path).readAsString()),
+        _Kind.koreader => parseKoreaderSidecar(await File(f.path).readAsString(), fileName: f.name),
+        _Kind.kobo => readKoboDatabase(f.path),
+        _Kind.playBooks => parsePlayBooksNotes(await File(f.path).readAsBytes(), fileName: f.name),
+        _Kind.libby => parseLibbyJourney(await File(f.path).readAsString()),
       });
     } on Object {
       // Not text: said below if nothing came of any.
@@ -197,9 +225,13 @@ Future<void> _highlights(BuildContext context, LibraryStore store, _Kind kind) a
   if (found.isEmpty) {
     showSnack(
       context,
-      kind == _Kind.kindle
-          ? 'No highlights in that file. It should be My Clippings.txt from the Kindle\'s documents folder.'
-          : 'No highlights in that file. It should be a metadata….lua file from a book\'s .sdr folder.',
+      switch (kind) {
+        _Kind.kindle => "No highlights in that file. It should be My Clippings.txt from the Kindle's documents folder.",
+        _Kind.koreader => "No highlights in that file. It should be a metadata….lua file from a book's .sdr folder.",
+        _Kind.kobo => "No highlights in that file. It should be KoboReader.sqlite from the Kobo's .kobo folder.",
+        _Kind.playBooks => "No highlights in that file. It should be a book's Play Books Notes Doc, downloaded as .docx or .md.",
+        _Kind.libby => "No highlights in that file. It should be the .json file Libby's Export Reading Data saves.",
+      },
       long: true,
     );
     return;
