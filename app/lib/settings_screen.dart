@@ -526,7 +526,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           SwitchRow(
                             title: 'Scene behind the page',
                             subtitle: _prefs.sceneOnPage
-                                ? "The scene's painting under the words, darkened so they read (with the app's own page tone)"
+                                ? "The scene's painting under the words, softened so they read (with the app's own page tone)"
                                 : 'Off: the page you read is plain',
                             value: _prefs.sceneOnPage,
                             padding: EdgeInsets.zero,
@@ -1081,18 +1081,25 @@ class _DesignerRow extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: Gap.m),
-                // The scenes, each a glimpse of its place.
-                Padding(
-                  padding: const EdgeInsets.only(right: Gap.s),
-                  child: Row(
-                    children: [
-                      for (final (i, p) in Palette.scenes.indexed) ...[
-                        if (i > 0) const SizedBox(width: Gap.xs),
-                        Expanded(child: _sceneChip(context, p, p.id == selected)),
+                // The scenes, each a glimpse of its place: by night, then by
+                // day.
+                for (final (row, places) in [
+                  (0, [for (final p in Palette.scenes) if (!p.scene!.light) p]),
+                  (1, [for (final p in Palette.scenes) if (p.scene!.light) p]),
+                ]) ...[
+                  if (row > 0) const SizedBox(height: Gap.xs),
+                  Padding(
+                    padding: const EdgeInsets.only(right: Gap.s),
+                    child: Row(
+                      children: [
+                        for (final (i, p) in places.indexed) ...[
+                          if (i > 0) const SizedBox(width: Gap.xs),
+                          Expanded(child: _sceneChip(context, p, p.id == selected)),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(height: Gap.xs),
                 Padding(
                   padding: const EdgeInsets.only(right: Gap.s),

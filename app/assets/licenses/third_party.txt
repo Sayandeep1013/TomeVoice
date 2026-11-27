@@ -131,3 +131,11 @@ for TomeVoice (tools/scene_art.py):
 - Black rose, Silver dragon and Old tome: made for TomeVoice with ChatGPT
   image generation (OpenAI), cropped and colour-graded; their originals
   are in tools/scene_sources.
+- Morris garden: William Morris (Morris & Co.), "Willow Bough" wallpaper
+  (1887). The Metropolitan Museum of Art, Open Access: public domain
+  (CC0 1.0). Graded paler for a light theme.
+- Botanical: Pierre-Joseph Redoute, "Rosa centifolia foliacea", from Les
+  Roses (1817-1824). Public domain. Placed on paper, twice.
+- Ukiyo-e: Katsushika Hokusai, "Fine Wind, Clear Morning" (Red Fuji), from
+  Thirty-six Views of Mount Fuji (c. 1830-1832). Public domain.
+- Marble and gold: drawn in code; no artwork.

@@ -104,12 +104,12 @@ void main() {
       expect(chosenPalette(prefs).scene, Scene.dungeon);
     });
 
-    test('each scene is a dark-only theme of its own, found by its id, its book colour keeping the scene', () {
+    test('each scene is a theme of its own, dark only (a light one light only), found by its id, its book colour keeping the scene', () {
       expect(Palette.scenes.map((p) => p.scene), Scene.values);
       for (final p in Palette.scenes) {
         expect(Palette.all, contains(p));
         expect(Palette.byId(p.id), same(p));
-        expect(p.only, Brightness.dark, reason: p.label);
+        expect(p.only, p.scene!.light ? Brightness.light : Brightness.dark, reason: p.label);
         expect(p.withTint(0xFF3366AA).scene, p.scene, reason: 'a book cover tints it, the place stays');
       }
       for (final p in [Palette.forest, ...Palette.designer]) {
@@ -317,10 +317,12 @@ void main() {
           (tester) async {
         phone(tester, width);
         Skin.palette = palette;
+        // As the app shows it: a light scene by day.
+        final b = palette.only ?? Brightness.dark;
         await tester.pumpWidget(MaterialApp(
-          theme: Skin.themeFor(palette, Brightness.dark),
-          darkTheme: Skin.themeFor(palette, Brightness.dark),
-          themeMode: ThemeMode.dark,
+          theme: Skin.themeFor(palette, b),
+          darkTheme: Skin.themeFor(palette, b),
+          themeMode: b == Brightness.dark ? ThemeMode.dark : ThemeMode.light,
           home: ReaderScreen(layout: ReadingLayout.build(specimenBook())),
         ));
         await tester.pumpAndSettle();

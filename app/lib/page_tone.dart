@@ -202,7 +202,16 @@ class PageGround extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          IgnorePointer(child: ColoredBox(color: scene && Skin.sceneOf(context) != null ? const Color(0xB8000000) : const Color(0x00000000))),
+          // Darkened by night, paled by day, so the words read.
+          IgnorePointer(
+            child: ColoredBox(
+              color: !scene || Skin.sceneOf(context) == null
+                  ? const Color(0x00000000)
+                  : Skin.isDark(context)
+                      ? const Color(0xB8000000)
+                      : Skin.paletteOf(context).daySheet.withValues(alpha: 0.78),
+            ),
+          ),
           IgnorePointer(
             child: DecoratedBox(
               decoration: edge == null

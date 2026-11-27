@@ -755,8 +755,13 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       child: Stack(
         children: [
           Positioned.fill(child: DecoratedBox(decoration: Skin.groundDecoration(context))),
-          // Dark enough under the rows for every word on them.
-          const Positioned.fill(child: ColoredBox(color: Color(0x8C000000))),
+          // Dark enough under the rows for every word on them; by day, in a
+          // light scene, pale enough.
+          Positioned.fill(
+            child: ColoredBox(
+              color: scene?.light ?? false ? Skin.paletteOf(context).daySheet.withValues(alpha: 0.72) : const Color(0x8C000000),
+            ),
+          ),
           if (!chalk)
             Positioned.fill(
               child: IgnorePointer(

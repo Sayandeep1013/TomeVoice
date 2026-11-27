@@ -136,6 +136,9 @@ class BrandPainter extends CustomPainter {
     switch (scene?.kin) {
       case null:
         return;
+      // Rimmed in paintBrandRim.
+      case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+        return;
       case Scene.dungeon:
         // Rusted iron with four rivets.
         c.drawPath(

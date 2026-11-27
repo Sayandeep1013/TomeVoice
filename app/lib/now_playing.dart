@@ -18,10 +18,10 @@ import 'theme.dart';
 import 'ui.dart';
 import 'voice_glow.dart';
 
-/// Whether Now Playing is drawn light: in a light colour theme it is, the
-/// cover washed pale behind dark type. Dark, and in a scene, it stays dark
-/// over the cover.
-bool _light(BuildContext c) => !Skin.isDark(c) && Skin.sceneOf(c) == null;
+/// Whether Now Playing is drawn light: in a light theme it is (the cover,
+/// or a light scene, washed pale behind dark type). Dark, it stays dark over
+/// the cover or the scene.
+bool _light(BuildContext c) => !Skin.isDark(c);
 
 /// The type and controls on Now Playing: the theme's ink when it is light,
 /// white over the dark cover otherwise.
@@ -475,7 +475,23 @@ class _Backdrop extends StatelessWidget {
   final Color accent;
 
   @override
-  Widget build(BuildContext context) => Skin.sceneOf(context) != null
+  Widget build(BuildContext context) => Skin.sceneOf(context)?.light ?? false
+      // A light scene: its own place behind, a little paler.
+      ? Ground(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Skin.paletteOf(context).daySheet.withValues(alpha: 0.3),
+                  Skin.paletteOf(context).daySheet.withValues(alpha: 0.6),
+                ],
+              ),
+            ),
+          ),
+        )
+      : Skin.sceneOf(context) != null
       // A scene theme: its own place behind, a little darker.
       ? const Ground(
           child: DecoratedBox(
@@ -489,7 +505,7 @@ class _Backdrop extends StatelessWidget {
           ),
         )
       : _light(context)
-      // A light theme: the cover blurred to colour under a pale wash of the
+      // A light colour theme: the cover blurred to colour under a pale wash of the
       // theme's own sheet, so dark type reads on it, as on its pages.
       ? Stack(
           fit: StackFit.expand,

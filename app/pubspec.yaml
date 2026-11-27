@@ -90,6 +90,9 @@ flutter:
     - assets/scenes/blackRose.webp
     - assets/scenes/silverDragon.webp
     - assets/scenes/oldTome.webp
+    - assets/scenes/morris.webp
+    - assets/scenes/botanical.webp
+    - assets/scenes/ukiyoe.webp
     # The natural voices on offer, by language, with each one's licence
     # (tools/voice_catalog.py makes it; see neural_voices.dart).
     - assets/voices/catalog.json

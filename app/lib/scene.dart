@@ -11,6 +11,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'speech_service.dart';
 
 part 'scene_crafted.dart';
+part 'scene_light.dart';
 part 'scene_sketch.dart';
 
 /// Scene themes: a place, not a colour. Each draws its own backdrop behind
@@ -40,7 +41,13 @@ enum Scene {
   silverDragon('Silver dragon', 'Silver filigree, sapphires and velvet', kin: Scene.dungeon, hue: 220, saturation: 0.05),
   // The forest's vines and curls turned to gilt tooling, over the worn
   // leather of an old book's cover; dust drifts in candlelight.
-  oldTome('Old tome', 'Worn leather, gilt and candlelight', kin: Scene.forest, hue: 36, saturation: 0.55);
+  oldTome('Old tome', 'Worn leather, gilt and candlelight', kin: Scene.forest, hue: 36, saturation: 0.55),
+  // The light scenes (scene_light.dart): places by day, each of its own
+  // light material.
+  morris('Morris garden', 'Willow boughs, printed linen and indigo'),
+  botanical('Botanical', 'Redouté roses, watercolour and gold'),
+  ukiyoe('Ukiyo-e', 'The Red Fuji, washi paper and seals'),
+  marble('Marble and gold', 'Veined white marble and gold leaf');
 
   const Scene(this.label, this.note, {Scene? kin, this.hue, this.saturation = 1}) : _kin = kin;
 
@@ -55,6 +62,9 @@ enum Scene {
   /// the solar scene's own hull.
   Scene get kin => _kin ?? this;
 
+  /// A place by day: a pale backdrop, dark type, light controls.
+  bool get light => lightScenes.contains(this);
+
   /// The hue its kin's colours are turned to (null: its kin's own), and
   /// how much of their colour stays.
   final double? hue;
@@ -66,6 +76,10 @@ enum Scene {
         Scene.forest => 16,
         Scene.sketch => 14,
         Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.silverDragon || Scene.oldTome => 2,
+        Scene.morris => 14,
+        Scene.botanical => 18,
+        Scene.ukiyoe => 4,
+        Scene.marble => 10,
       };
 
   /// How far a hull's panels and buttons are cut at two corners.
@@ -133,7 +147,10 @@ ui.Image? sceneBackdrop(Scene scene, Size size, double dpr) {
 // the forest's trees and vines looked stiff up close; a painting does not.
 
 /// Scenes with a painted backdrop.
-const _withArt = {Scene.forest, Scene.silverWitch, Scene.solar, Scene.dungeon, Scene.blackRose, Scene.silverDragon, Scene.oldTome};
+const _withArt = {
+  Scene.forest, Scene.silverWitch, Scene.solar, Scene.dungeon, Scene.blackRose, Scene.silverDragon, Scene.oldTome,
+  Scene.morris, Scene.botanical, Scene.ukiyoe,
+};
 
 /// Whether painted backdrops are loaded (off under `flutter test`, which
 /// keeps to the drawn ones).
@@ -295,7 +312,7 @@ void paintSceneGround(Canvas canvas, Rect rect, SceneGround ground, double dpr,
 void paintBackdrop(Canvas canvas, Size size, Scene scene) {
   final art = _art[scene];
   if (art != null) {
-    _paintArt(canvas, size, art);
+    scene.light ? _paintLightArt(canvas, size, art, scene) : _paintArt(canvas, size, art);
     return;
   }
   switch (scene) {
@@ -309,6 +326,8 @@ void paintBackdrop(Canvas canvas, Size size, Scene scene) {
       // A scene made from a painting, while it loads: its dark, in shadow.
       canvas.drawRect(Offset.zero & size, _fill(_k(scene, const Color(0xFF0A1424))));
       _vignette(canvas, size);
+    case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+      _paintLightBackdrop(canvas, size, scene);
   }
 }
 
@@ -1056,8 +1075,15 @@ void bracket(Canvas c, Offset corner, double len, double dx, double dy, Color co
 /// [scene]'s frame round a cover filling [rect], its corners [radius].
 void paintCoverFrame(Canvas c, Rect rect, Scene scene, double radius) {
   if (_craftedCoverFrame(c, rect, scene, radius)) return;
+  if (scene.light) {
+    _lightCoverFrame(c, rect, scene, radius);
+    return;
+  }
   final t = (rect.width * 0.06).clamp(2.5, 9.0);
   switch (scene.kin) {
+    // Drawn in scene_light.dart before this.
+    case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+      break;
     case Scene.dungeon:
       final rr = RRect.fromRectAndRadius(rect.deflate(t / 2), Radius.circular(math.max(radius, t)));
       c.drawRRect(
@@ -1236,8 +1262,15 @@ void paintPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {bool li
     }
   }
   if (_craftedPanel(c, rect, scene, corners, lit: lit)) return;
+  if (scene.light) {
+    _lightPanel(c, rect, scene, corners, lit: lit);
+    return;
+  }
   final r = math.Random((rect.width * 31 + rect.height).round());
   switch (scene.kin) {
+    // Drawn in scene_light.dart before this.
+    case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+      break;
     case Scene.dungeon:
       c.drawRRect(
         rr,
@@ -1418,6 +1451,10 @@ class _SceneButtonPainter extends BoxPainter {
 /// A button of [scene]'s material at [rect].
 void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radius) {
   if (_craftedButton(c, rect, scene, fill, radius)) return;
+  if (scene.light) {
+    _lightButton(c, rect, scene, fill, radius);
+    return;
+  }
   final path = scene.kin == Scene.solar
       ? cutPath(rect, math.min(8.0, rect.shortestSide * 0.3))
       : (Path()..addRRect(radius.toRRect(rect)));
@@ -1438,6 +1475,9 @@ void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radi
   c.save();
   c.clipPath(path);
   switch (scene.kin) {
+    // Drawn in scene_light.dart before this.
+    case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+      break;
     case Scene.dungeon:
       // Pitted stone (or glowing coal, lit), lit along the top.
       final r = math.Random((rect.width * 7 + rect.height).round());
@@ -1468,6 +1508,9 @@ void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radi
   }
   c.restore();
   switch (scene.kin) {
+    // Drawn in scene_light.dart before this.
+    case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+      break;
     case Scene.dungeon:
       c.drawPath(path, _stroke(Colors.black.withValues(alpha: 0.75), 1.4));
       c.drawPath(path, _stroke((bright ? _k(scene, const Color(0xFFFFC08A)) : _k(scene, const Color(0xFF6A3416))).withValues(alpha: bright ? 0.35 : 0.75), 0.9));
@@ -1659,6 +1702,8 @@ class LifePainter extends CustomPainter {
         _silverDragonLife(canvas, s, t);
       case Scene.oldTome:
         _oldTomeLife(canvas, s, t);
+      case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+        _lightLife(canvas, s, t, scene);
     }
     canvas.restore();
   }
@@ -2121,8 +2166,15 @@ class _EmptyPainter extends CustomPainter {
   @override
   void paint(Canvas c, Size s) {
     if (paintOwnEmpty(c, s, scene)) return;
+    if (scene.light) {
+      _lightEmpty(c, s, scene);
+      return;
+    }
     final m = Offset(s.width / 2, s.height / 2);
     switch (scene.kin) {
+      // Drawn in scene_light.dart before this.
+      case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+        break;
       case Scene.dungeon:
         // A candle stub burning on a skull.
         _light(c, m + Offset(0, -s.height * 0.3), s.width * 0.6, _k(scene, const Color(0xFFFF8A2A)).withValues(alpha: 0.35));
@@ -2213,6 +2265,8 @@ class _OrnamentPainter extends CustomPainter {
   void paint(Canvas c, Size s) {
     final r = math.Random(foot ? 2 : 1);
     switch ((scene.kin, foot)) {
+      case (Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble, final foot):
+        _lightOrnament(c, s, scene, foot: foot);
       case (Scene.dungeon, false):
         // Crossed bones behind a skull.
         final m = Offset(s.width / 2, s.height / 2);
@@ -2345,7 +2399,14 @@ class _DividerPainter extends CustomPainter {
   void paint(Canvas c, Size s) {
     final y = s.height / 2;
     if (paintOwnDivider(c, s, scene)) return;
+    if (scene.light) {
+      _lightDivider(c, s, scene);
+      return;
+    }
     switch (scene.kin) {
+      // Drawn in scene_light.dart before this.
+      case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+        break;
       case Scene.dungeon:
         final rune = _stroke(_k(scene, const Color(0xFF8A6A4A)).withValues(alpha: 0.55), 1.1);
         c.drawLine(Offset(0, y), Offset(s.width, y), _stroke(_k(scene, const Color(0xFF3E2E22)), 1));

@@ -265,6 +265,12 @@ class Skin {
       Scene.blackRose => ('CormorantGaramond', 1.12, 0.01, FontWeight.w600),
       Scene.silverDragon => ('MarcellusSC', 0.94, 0.06, FontWeight.w400),
       Scene.oldTome => ('IMFellEnglish', 1.1, 0.0, FontWeight.w400),
+      // Morris's own types were Golden and Troy; IM Fell is of that
+      // printing. Roman capitals cut in stone for marble.
+      Scene.morris => ('IMFellEnglish', 1.08, 0.0, FontWeight.w400),
+      Scene.botanical => ('CormorantGaramond', 1.14, 0.01, FontWeight.w600),
+      Scene.ukiyoe => ('MarcellusSC', 0.94, 0.08, FontWeight.w400),
+      Scene.marble => ('Cinzel', 0.9, 0.06, FontWeight.w400),
     };
     final s = size * scale;
     return TextStyle(
@@ -275,12 +281,14 @@ class Skin {
       fontWeight: w,
       fontVariations: [FontVariation('wght', w.value.toDouble())],
       color: color ?? inkOn(c),
-      shadows: [
-        // The place's light on the letters.
-        Shadow(
-            color: accentOf(c).withValues(alpha: scene.kin == Scene.solar ? 0.55 : 0.35),
-            blurRadius: scene.kin == Scene.solar ? 10 : 14),
-      ],
+      // The place's light on the letters (none by day: ink on paper).
+      shadows: scene.light
+          ? null
+          : [
+              Shadow(
+                  color: accentOf(c).withValues(alpha: scene.kin == Scene.solar ? 0.55 : 0.35),
+                  blurRadius: scene.kin == Scene.solar ? 10 : 14),
+            ],
     );
   }
 
@@ -632,6 +640,10 @@ class Skin {
               Scene.solar => const Color(0x99FFCA70),
               Scene.dungeon => const Color(0x997A6656),
               Scene.sketch => const Color(0x99EDE9E0),
+              Scene.morris => const Color(0xB33E5A3A),
+              Scene.botanical => const Color(0xCCC6A25A),
+              Scene.ukiyoe => const Color(0xCC1F1B17),
+              Scene.marble => const Color(0xCCC09A4E),
             },
             width: scene == null ? 1 : 1.2,
           ),
@@ -1139,7 +1151,95 @@ class Palette {
     scene: Scene.oldTome,
   ));
 
-  static final scenes = [forestScene, silverWitch, solar, dungeon, sketch, blackRose, silverDragon, oldTome];
+  /// Morris garden: Willow Bough on linen, printed in indigo.
+  static final morris = readable(const Palette(
+    id: 'scene-morris',
+    label: 'Morris garden',
+    day: [Color(0xFFF4EEDF), Color(0xFFEDE5D0), Color(0xFFF2EBDB), Color(0xFFE8DEC8)],
+    night: [Color(0xFFF4EEDF), Color(0xFFEDE5D0), Color(0xFFF2EBDB), Color(0xFFE8DEC8)],
+    accent: Color(0xFF2F5277),
+    accentSoft: Color(0xFF6E8FB3),
+    accentDeep: Color(0xFF23415F),
+    onAccent: Color(0xFFF7F2E6),
+    nightCapsule: Color(0xF2FBF7EC),
+    nightSheet: Color(0xFFF8F3E7),
+    dayCapsule: Color(0xF2FBF7EC),
+    daySheet: Color(0xFFF8F3E7),
+    dayInk: Color(0xFF1E2620),
+    dayInkSoft: Color(0xFF3F4A40),
+    dayInkFaint: Color(0xFF4A5548),
+    only: Brightness.light,
+    scene: Scene.morris,
+  ));
+
+  /// Botanical: Redouté's rose on watercolour paper, dusty rose and gold.
+  static final botanical = readable(const Palette(
+    id: 'scene-botanical',
+    label: 'Botanical',
+    day: [Color(0xFFFAF4EA), Color(0xFFF5EBDD), Color(0xFFF8F0E5), Color(0xFFF1E5D6)],
+    night: [Color(0xFFFAF4EA), Color(0xFFF5EBDD), Color(0xFFF8F0E5), Color(0xFFF1E5D6)],
+    accent: Color(0xFFB85068),
+    accentSoft: Color(0xFFE3A3B0),
+    accentDeep: Color(0xFF8E3247),
+    onAccent: Color(0xFFFFF8F4),
+    nightCapsule: Color(0xF2FFFBF5),
+    nightSheet: Color(0xFFFDF8F0),
+    dayCapsule: Color(0xF2FFFBF5),
+    daySheet: Color(0xFFFDF8F0),
+    dayInk: Color(0xFF2A2622),
+    dayInkSoft: Color(0xFF4E4740),
+    dayInkFaint: Color(0xFF5A5249),
+    only: Brightness.light,
+    scene: Scene.botanical,
+  ));
+
+  /// Ukiyo-e: the Red Fuji on washi, sumi ink and a vermilion seal.
+  static final ukiyoe = readable(const Palette(
+    id: 'scene-ukiyoe',
+    label: 'Ukiyo-e',
+    day: [Color(0xFFF3ECDB), Color(0xFFECE3CE), Color(0xFFF1E9D7), Color(0xFFE6DCC5)],
+    night: [Color(0xFFF3ECDB), Color(0xFFECE3CE), Color(0xFFF1E9D7), Color(0xFFE6DCC5)],
+    accent: Color(0xFFC8442E),
+    accentSoft: Color(0xFFE58A6E),
+    accentDeep: Color(0xFF9A2E1C),
+    onAccent: Color(0xFFFFF6EA),
+    nightCapsule: Color(0xF2F8F2E4),
+    nightSheet: Color(0xFFF7F1E3),
+    dayCapsule: Color(0xF2F8F2E4),
+    daySheet: Color(0xFFF7F1E3),
+    dayInk: Color(0xFF1C1915),
+    dayInkSoft: Color(0xFF423B33),
+    dayInkFaint: Color(0xFF4E463D),
+    only: Brightness.light,
+    scene: Scene.ukiyoe,
+  ));
+
+  /// Marble and gold: white veined stone, gold leaf.
+  static final marble = readable(const Palette(
+    id: 'scene-marble',
+    label: 'Marble and gold',
+    day: [Color(0xFFF8F6F2), Color(0xFFF1EEE8), Color(0xFFF6F4EF), Color(0xFFEAE6DE)],
+    night: [Color(0xFFF8F6F2), Color(0xFFF1EEE8), Color(0xFFF6F4EF), Color(0xFFEAE6DE)],
+    accent: Color(0xFFC09A4E),
+    accentSoft: Color(0xFFDCC07E),
+    accentDeep: Color(0xFF7A5A1C),
+    onAccent: Color(0xFF231A0A),
+    nightCapsule: Color(0xF2FCFBF8),
+    nightSheet: Color(0xFFFBFAF7),
+    dayCapsule: Color(0xF2FCFBF8),
+    daySheet: Color(0xFFFBFAF7),
+    dayInk: Color(0xFF1F1D19),
+    dayInkSoft: Color(0xFF45413A),
+    dayInkFaint: Color(0xFF524D45),
+    only: Brightness.light,
+    scene: Scene.marble,
+  ));
+
+  static final scenes = [
+    forestScene, silverWitch, solar, dungeon, sketch, blackRose, silverDragon, oldTome,
+    // By day.
+    morris, botanical, ukiyoe, marble,
+  ];
 
   static final all = [paper, forest, lavender, ocean, black, ...designer, ...scenes];
 

@@ -161,8 +161,9 @@ void _button(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radius) 
         }
       }
       c.drawRRect(rr, _stroke(Colors.black.withValues(alpha: 0.6), 1.2));
-    case Scene.forest || Scene.solar || Scene.dungeon || Scene.sketch:
-      // Not reached: these keep their kin's buttons.
+    case Scene.forest || Scene.solar || Scene.dungeon || Scene.sketch || Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+      // Not reached: these keep their kin's buttons (the light scenes have
+      // their own, scene_light.dart).
       break;
   }
 }
@@ -294,7 +295,7 @@ void _panel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {required bo
               [const Color(0xFFFFB45A).withValues(alpha: 0.08), const Color(0xFFFFB45A).withValues(alpha: 0)]),
       );
       c.restore();
-    case Scene.forest || Scene.silverWitch || Scene.solar || Scene.dungeon || Scene.sketch:
+    case Scene.forest || Scene.silverWitch || Scene.solar || Scene.dungeon || Scene.sketch || Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
       break;
   }
 }
@@ -306,6 +307,10 @@ void _panel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {required bo
 /// sheet's, a dialog's, a menu's, the drawer's, a cover's.
 void paintSceneEdge(Canvas c, Rect rect, Scene scene, BorderRadius corners, {bool lit = false}) {
   if (rect.width < 8 || rect.height < 8) return;
+  if (scene.light) {
+    _lightEdge(c, rect, scene, corners, lit: lit);
+    return;
+  }
   final rr = corners.toRRect(rect);
   final big = rect.shortestSide > 30;
   final wide = rect.width > 180;
@@ -317,6 +322,9 @@ void paintSceneEdge(Canvas c, Rect rect, Scene scene, BorderRadius corners, {boo
     (rect.bottomRight + Offset(-inset, -inset), -1.0, -1.0),
   ];
   switch (scene) {
+    // Drawn in scene_light.dart before this.
+    case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+      break;
     case Scene.blackRose:
       final silver = const Color(0xFFDDE4F4).withValues(alpha: lit ? 0.7 : 0.5);
       c.drawRRect(rr.deflate(0.6), _stroke(silver, 1));
@@ -645,9 +653,16 @@ class SceneKnobShape extends SliderComponentShape {
 
 /// [scene]'s knob at [center], [r] across, in [colour].
 void paintKnob(Canvas c, Offset center, double r, Scene scene, Color colour) {
+  if (scene.light) {
+    _lightKnob(c, center, r, scene, colour);
+    return;
+  }
   c.drawCircle(center + const Offset(0, 1.5), r, _glow(Colors.black.withValues(alpha: 0.5), 3));
   final disc = Rect.fromCircle(center: center, radius: r);
   switch (scene) {
+    // Drawn in scene_light.dart before this.
+    case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+      break;
     case Scene.blackRose:
       c.drawCircle(center, r + 3, _glow(colour.withValues(alpha: 0.35), 5));
       c.drawCircle(
@@ -781,6 +796,9 @@ bool paintOwnDivider(Canvas c, Size s, Scene scene) {
         _star4(c, m + Offset(sx * 14, 0), 2.2, silver.withValues(alpha: 0.8));
       }
       return true;
+    case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+      _lightDivider(c, s, scene);
+      return true;
     case Scene.forest || Scene.solar || Scene.dungeon || Scene.sketch:
       return false;
   }
@@ -817,6 +835,13 @@ bool paintBrandRim(Canvas c, Rect box, Path shape, Scene scene) {
       metal = _chrome;
     case Scene.oldTome:
       metal = _brass;
+    // The light scenes: willow green, gold leaf, brush ink, gold leaf.
+    case Scene.morris:
+      metal = const [Color(0xFFF6F0E2), Color(0xFF6E8A5E), Color(0xFFDCE6CC), Color(0xFF3E5A3A)];
+    case Scene.botanical || Scene.marble:
+      metal = _goldLeaf;
+    case Scene.ukiyoe:
+      metal = const [Color(0xFF5A524A), Color(0xFF1F1B17), Color(0xFF3A332B), Color(0xFF0E0C0A)];
     case Scene.forest || Scene.solar || Scene.dungeon || Scene.sketch:
       return false;
   }
@@ -840,7 +865,7 @@ bool paintBrandRim(Canvas c, Rect box, Path shape, Scene scene) {
       for (final p in const [Offset(58, 58), Offset(454, 58), Offset(58, 454), Offset(454, 454)]) {
         _gem(c, p, 14);
       }
-    case Scene.blackRose || Scene.silverWitch || Scene.forest || Scene.solar || Scene.dungeon || Scene.sketch:
+    case Scene.blackRose || Scene.silverWitch || Scene.forest || Scene.solar || Scene.dungeon || Scene.sketch || Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
       break;
   }
   return true;
@@ -860,6 +885,10 @@ Offset? _cameoAt(Scene scene) => switch (scene) {
       Scene.solar => const Offset(0.22, 0.38),
       Scene.dungeon => const Offset(0.5, 0.45),
       Scene.sketch => null,
+      Scene.morris => const Offset(0.5, 0.45),
+      Scene.botanical => const Offset(0.66, 0.12),
+      Scene.ukiyoe => const Offset(0.8, 0.16),
+      Scene.marble => null,
     };
 
 /// An empty screen's picture in [scene]: a round cameo of its own painting,
@@ -903,7 +932,9 @@ class SceneSelectionPainter extends CustomPainter {
   @override
   void paint(Canvas c, Size size) {
     final rect = Offset.zero & size;
-    paintButton(c, rect, scene, Color.lerp(const Color(0xFF14161C), accent, 0.26)!, BorderRadius.circular(size.height / 2));
+    // By day a light tint of the accent; by night a dark one.
+    final base = scene.light ? _stuffOf(scene).paper : const Color(0xFF14161C);
+    paintButton(c, rect, scene, Color.lerp(base, accent, scene.light ? 0.2 : 0.26)!, BorderRadius.circular(size.height / 2));
     final p = Offset(size.width - size.height * 0.62, size.height / 2);
     switch (scene) {
       case Scene.blackRose:
@@ -934,6 +965,14 @@ class SceneSelectionPainter extends CustomPainter {
         c.drawCircle(p, 3.8, _fill(accent));
       case Scene.dungeon:
         c.drawCircle(p, 3.2, Paint()..shader = ui.Gradient.radial(p - const Offset(1, 1), 4, [const Color(0xFFC07A40), const Color(0xFF5A2A12), const Color(0xFF140804)], const [0, 0.5, 1]));
+      case Scene.morris:
+        _willowSprig(c, p - const Offset(6, 2), 7, 1, 1, _stuffOf(scene));
+      case Scene.botanical:
+        _rosebud(c, p, 3.6, 1, _stuffOf(scene));
+      case Scene.ukiyoe:
+        _seal(c, Rect.fromCenter(center: p, width: 9, height: 9), _stuffOf(scene).mark, seed: 2);
+      case Scene.marble:
+        _diamond(c, p, 4.4);
       case Scene.sketch:
         paintChalk(c, Path()
           ..moveTo(p.dx - 5, p.dy)
