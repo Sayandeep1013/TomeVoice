@@ -637,7 +637,7 @@ void _lightDivider(Canvas c, Size s, Scene scene) {
       c.drawLine(Offset(0, y), Offset(s.width, y),
           Paint()
             ..strokeWidth = 0.8
-            ..shader = ui.Gradient.linear(Offset(0, y), Offset(s.width, y), [st.line.withValues(alpha: 0), st.line, st.line.withValues(alpha: 0)]));
+            ..shader = ui.Gradient.linear(Offset(0, y), Offset(s.width, y), [st.line.withValues(alpha: 0), st.line, st.line.withValues(alpha: 0)], const [0, 0.5, 1]));
       _rosebud(c, m, 3.6, 1, st);
     case Scene.ukiyoe:
       final path = Path()
@@ -649,7 +649,7 @@ void _lightDivider(Canvas c, Size s, Scene scene) {
       c.drawLine(Offset(0, y), Offset(s.width, y),
           Paint()
             ..strokeWidth = 1
-            ..shader = ui.Gradient.linear(Offset(0, y), Offset(s.width, y), [_goldLeaf[1].withValues(alpha: 0), _goldLeaf[1], _goldLeaf[1].withValues(alpha: 0)]));
+            ..shader = ui.Gradient.linear(Offset(0, y), Offset(s.width, y), [_goldLeaf[1].withValues(alpha: 0), _goldLeaf[1], _goldLeaf[1].withValues(alpha: 0)], const [0, 0.5, 1]));
       _diamond(c, m, 4);
   }
 }
@@ -770,7 +770,7 @@ void _lightLife(Canvas c, Size s, double t, Scene scene) {
         Rect.fromLTWH(0, 0, s.width * 0.18, s.height),
         Paint()
           ..shader = ui.Gradient.linear(Offset.zero, Offset(s.width * 0.18, 0),
-              [Colors.white.withValues(alpha: 0), Colors.white.withValues(alpha: 0.22), Colors.white.withValues(alpha: 0)]),
+              [Colors.white.withValues(alpha: 0), Colors.white.withValues(alpha: 0.22), Colors.white.withValues(alpha: 0)], const [0, 0.5, 1]),
       );
       c.restore();
   }
