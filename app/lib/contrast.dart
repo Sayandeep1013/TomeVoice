@@ -121,7 +121,7 @@ Map<String, List<Color>> surfacesOf(Palette p, Brightness b) {
     'a capsule': [for (final g in ground) Color.alphaBlend(capsule, g)],
     'a chosen row': [for (final g in ground) Color.alphaBlend(p.accent.withValues(alpha: 0.14), g)],
     'a sheet': [sheet],
-    'a choice on a sheet': [Color.alphaBlend(Skin.raised, sheet)],
+    'a choice on a sheet': [Color.alphaBlend(Skin.raisedFor(b), sheet)],
     'a choice chosen on a sheet': [Color.alphaBlend(p.accent.withValues(alpha: 0.14), sheet)],
   };
 }
@@ -199,15 +199,16 @@ List<ContrastNeed> needsOf(Palette p, Brightness b) {
   if (!dark) on('a slider by day', sliderMarkOf(p), _sliderGroundsOf(p), largeText);
   // Labels on the accent's fill: a button, the chosen segment.
   on('text on the accent', p.onAccent, {'the accent': [p.accent]}, smallText);
-  // The dark bar under a player (in the book's colour on its side) and a
-  // scroller's bubble, with the soft accent lit on it; a snack bar and its
-  // action.
+  // The bar under a player (in the book's colour on its side) and a
+  // scroller's bubble, with the accent lit on it (soft by night, deep by
+  // day, the bar being light then); a snack bar and its action.
   final onDark = Skin.onDarkFor(p, b);
+  final lit = dark ? p.accentSoft : p.accentDeep;
   final bars = {'the dark bar': darkBarsOf(p, b)};
   on('text on the dark bar', onDark, bars, smallText);
-  on('the soft accent on the dark bar', p.accentSoft, bars, smallText);
+  on('the accent lit on the dark bar', lit, bars, smallText);
   on('text on a snack bar', onDark, {'a snack bar': [Skin.snackFor(p, b)]}, smallText);
-  on("a snack bar's action", p.accentSoft, {'a snack bar': [Skin.snackFor(p, b)]}, smallText);
+  on("a snack bar's action", lit, {'a snack bar': [Skin.snackFor(p, b)]}, smallText);
   return out;
 }
 
@@ -217,23 +218,22 @@ List<Color> darkBarsOf(Palette p, Brightness b) {
   return [bar, Color.lerp(bar, p.accent, 0.16)!];
 }
 
-/// What a slider sits on by day: light sheets and capsules, and the dark bar
-/// under a player (whose slider takes the app's).
+/// What a slider sits on by day: light sheets and capsules, and the bar
+/// under a player (whose slider takes the app's), light too by day.
 Map<String, List<Color>> _sliderGroundsOf(Palette p) => {
       'a light sheet or capsule': [
         p.daySheet,
-        Color.alphaBlend(Skin.raised, p.daySheet),
+        Color.alphaBlend(Skin.raisedDay, p.daySheet),
         for (final g in groundOf(p, Brightness.light)) Color.alphaBlend(p.dayCapsule, g),
       ],
-      'the dark bar': [Skin.darkFor(p, Brightness.light)],
+      'the dark bar': darkBarsOf(p, Brightness.light),
     };
 
-/// A slider's mark by day: the accent at a tone that shows at 3:1 both on
-/// the light sheets and capsules it sits on and on the player's dark bar.
+/// A slider's mark by day: the accent at a tone that shows at 3:1 on the
+/// light sheets, capsules and the player's bar it sits on.
 Color sliderMarkOf(Palette p) {
   final on = _sliderGroundsOf(p);
-  final light = readableOn(p.accent, on['a light sheet or capsule']!, largeText, darker: true);
-  return readableOn(light, on['the dark bar']!, largeText, darker: false);
+  return readableOn(p.accent, [...on['a light sheet or capsule']!, ...on['the dark bar']!], largeText, darker: true);
 }
 
 /// What [needsOf] finds short, in every brightness [p] shows in.
@@ -275,14 +275,15 @@ Palette _readableIn(Palette p, Brightness b) {
   final faint = fit(fit(q.inkFaintFor(b), surfaces), picked, largeText);
   final soft = _noWeaker(fit(fit(q.inkSoftFor(b), surfaces), picked, largeText), than: faint, dark: dark);
   var ink = fit(fit(q.inkFor(b), [...surfaces, ...picked]), readAloudOf(q, b));
-  // By night the ink is also what the dark bar and a snack bar say.
-  if (dark) ink = fit(ink, chrome);
+  // The ink is also what the bar and a snack bar say.
+  ink = fit(ink, chrome);
   ink = _noWeaker(ink, than: soft, dark: dark);
   final danger = fit(q.dangerFor(b), surfaces);
-  final text = fit(fit(dark ? q.accentSoft : q.accentDeep, surfaces), picked, largeText);
-  // The soft accent is also lit on the dark bar and a snack bar's action,
-  // by day and by night.
-  final accentSoft = readableOn(dark ? text : q.accentSoft, chrome, smallText, darker: false);
+  var text = fit(fit(dark ? q.accentSoft : q.accentDeep, surfaces), picked, largeText);
+  // By day the deep accent is what is lit on the bar and a snack bar's
+  // action; by night the soft one is.
+  if (!dark) text = fit(text, chrome);
+  final accentSoft = dark ? readableOn(text, chrome, smallText, darker: false) : q.accentSoft;
   return q.copyWith(
     accentDeep: dark ? null : text,
     accentSoft: accentSoft,

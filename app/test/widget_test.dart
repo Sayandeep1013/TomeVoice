@@ -367,10 +367,12 @@ void main() {
       await tester.fling(find.byTooltip('Speed'), const Offset(0, -300), 1500);
       await tester.pumpAndSettle();
       expect(find.text('NOW READING'), findsOneWidget);
-      // The page around the voice, the sentence to be read lit in it.
+      // The page around the voice, the sentence to be read lit in it: in
+      // the light theme's full ink, the rest dimmed.
+      final ink = Skin.inkOn(tester.element(find.text('NOW READING')));
       bool lit(InlineSpan? s) =>
           s is TextSpan &&
-          ((s.style?.color == Colors.white && s.toPlainText().contains('quick brown fox')) ||
+          ((s.style?.color == ink && s.toPlainText().contains('quick brown fox')) ||
               (s.children ?? const []).any(lit));
 
       expect(tester.widgetList<Text>(find.textContaining('quick brown fox')).any((t) => lit(t.textSpan)), isTrue);

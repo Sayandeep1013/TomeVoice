@@ -388,9 +388,9 @@ class ReturnPill extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // On the dark pill, the soft accent (the deep one by
-                      // day would not show on it).
-                      Icon(Icons.undo_rounded, size: 16, color: Skin.accentSoftOf(context)),
+                      // On the pill, the accent as ink: soft by night, deep
+                      // by day, when the pill is light.
+                      Icon(Icons.undo_rounded, size: 16, color: Skin.accentInkOf(context)),
                       const SizedBox(width: Gap.s),
                       Flexible(
                         child: Text('Back to where you were',
@@ -442,9 +442,9 @@ class BackToReadingPill extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // On the dark pill, the soft accent (the deep one by day
-                    // would not show on it).
-                    Icon(Icons.my_location_rounded, size: 16, color: Skin.accentSoftOf(context)),
+                    // On the pill, the accent as ink: soft by night, deep by
+                    // day, when the pill is light.
+                    Icon(Icons.my_location_rounded, size: 16, color: Skin.accentInkOf(context)),
                     const SizedBox(width: Gap.s),
                     Flexible(
                       child: Text('Back to reading',

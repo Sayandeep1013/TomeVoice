@@ -186,11 +186,11 @@ Palette _palette(OwnColours c) {
 /// has none, as on an older phone a backup was restored to).
 Palette chosenPalette(ListeningPrefs? prefs) => switch (prefs?.paletteId) {
       'own' => OwnColours.of(prefs!).made.palette,
-      'wallpaper' => WallpaperColours.palette ?? Palette.forest,
+      'wallpaper' => WallpaperColours.palette ?? Palette.start,
       final id => Palette.byId(id),
     };
 
-/// The theme Settings shows as chosen: Forest for the wallpaper's on a
-/// phone that has no wallpaper colours.
+/// The theme Settings shows as chosen: the starting theme for the
+/// wallpaper's on a phone that has no wallpaper colours.
 String chosenPaletteId(ListeningPrefs prefs) =>
-    prefs.paletteId == 'wallpaper' && WallpaperColours.palette == null ? 'forest' : Palette.idNow(prefs.paletteId)!;
+    prefs.paletteId == 'wallpaper' && WallpaperColours.palette == null ? Palette.start.id : Palette.idNow(prefs.paletteId)!;

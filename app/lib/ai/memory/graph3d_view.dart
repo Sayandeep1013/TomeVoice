@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../../theme.dart';
 import 'ledger.dart';
 import 'whos_who_screen.dart' show kindColour;
 
@@ -339,7 +340,7 @@ class _BallPainter extends CustomPainter {
       final pad = strong ? const Offset(6, 2.5) : const Offset(2, 1);
       final rect = Rect.fromCenter(center: at, width: tp.width + pad.dx * 2, height: tp.height + pad.dy * 2);
       if (!strong && placed.any((p) => p.overlaps(rect))) continue;
-      final ground = view.dark ? const Color(0xFF101614) : Colors.white;
+      final ground = view.dark ? const Color(0xFF101614) : Skin.palette.daySheet;
       if (strong) {
         canvas.drawRRect(
             RRect.fromRectAndRadius(rect, Radius.circular(rect.height / 2)), Paint()..color = const Color(0xFFE07A3A));

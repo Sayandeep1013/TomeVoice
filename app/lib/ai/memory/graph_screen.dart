@@ -1597,7 +1597,7 @@ class GraphPainter extends CustomPainter {
       ? _groupHues[i]
       : HSLColor.fromAHSL(1, (i * 137.508 + 200) % 360, 0.5, 0.58).toColor();
 
-  Color get _ground => ground ?? (dark ? const Color(0xFF101614) : Colors.white);
+  Color get _ground => ground ?? (dark ? const Color(0xFF101614) : Skin.palette.daySheet);
 
   /// Names laid out once, at their size on the screen, and kept across
   /// frames: a pan or a zoom draws the same names again, scaled, rather than

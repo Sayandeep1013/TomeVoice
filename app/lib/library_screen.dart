@@ -1708,7 +1708,7 @@ class _ContinueDockState extends State<ContinueDock> {
           BoxDecoration(
             color: Skin.darkOn(context).withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(Radii.card),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            border: Border.all(color: Skin.isDark(context) ? Colors.white.withValues(alpha: 0.08) : Skin.capsuleEdge),
           ),
           lit: true,
         ),
@@ -1792,7 +1792,7 @@ class _ContinueDockState extends State<ContinueDock> {
                   ),
                   const SizedBox(height: 6),
                   Progress(e.progress,
-                      height: 2.5, track: onDark.withValues(alpha: 0.14), color: Skin.accentSoftOf(context)),
+                      height: 2.5, track: onDark.withValues(alpha: 0.14), color: Skin.accentInkOf(context)),
                 ],
               ),
             ),

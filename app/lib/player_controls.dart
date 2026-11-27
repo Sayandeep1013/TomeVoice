@@ -69,7 +69,7 @@ class PlayButton extends StatelessWidget {
                             key: const ValueKey('ring'),
                             width: 60,
                             height: 60,
-                            child: CircularProgressIndicator(strokeWidth: 2.5, color: Skin.accentSoftOf(context)),
+                            child: CircularProgressIndicator(strokeWidth: 2.5, color: Skin.accentInkOf(context)),
                           )
                         : const SizedBox(width: 60, height: 60),
                   ),
