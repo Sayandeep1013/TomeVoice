@@ -156,26 +156,13 @@ void _paintTopoBackdrop(Canvas canvas, Size size, Scene scene) {
 // ---------------------------------------------------------------------------
 // Frames, panels, buttons.
 
-/// Registration ticks at a box's corners, as on a printed map's sheet.
-void _ticks(Canvas c, Rect rect, Color color, {double len = 7, double inset = 4}) {
-  final p = _stroke(color, 1.1)..strokeCap = StrokeCap.square;
-  for (final (corner, sx, sy) in [
-    (rect.topLeft + Offset(inset, inset), 1.0, 1.0),
-    (rect.topRight + Offset(-inset, inset), -1.0, 1.0),
-    (rect.bottomLeft + Offset(inset, -inset), 1.0, -1.0),
-    (rect.bottomRight + Offset(-inset, -inset), -1.0, -1.0),
-  ]) {
-    c.drawLine(corner, corner + Offset(sx * len, 0), p);
-    c.drawLine(corner, corner + Offset(0, sy * len), p);
-  }
-}
-
 void _topoEdge(Canvas c, Rect rect, Scene scene, BorderRadius corners, {bool lit = false}) {
   if (rect.width < 8 || rect.height < 8) return;
   final t = _topoOf(scene);
   final rr = corners.toRRect(rect);
+  // A hairline, as a map's frame; no corner marks (the owner found the
+  // orange right angles on menus and sheets too much).
   c.drawRRect(rr.deflate(0.5), _stroke(t.ink.withValues(alpha: lit ? 0.5 : 0.36), 0.9));
-  if (rect.shortestSide > 30) _ticks(c, rect, t.signal.withValues(alpha: 0.85), len: math.min(9.0, rect.shortestSide * 0.12), inset: math.max(4.0, corners.topLeft.x * 0.35));
 }
 
 void _topoPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {required bool lit}) {
@@ -186,26 +173,47 @@ void _topoPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {require
     final rr = corners.toRRect(r);
     c.drawRRect(rr, _fill(t.panel));
     // A corner of the map showing through, faintly, where a big panel has
-    // room for it.
+    // room for it: one patch of contours made once and kept, laid into each
+    // panel (made anew for each panel's size, they cost a scroll 50-150 ms
+    // frames as new rows came in).
     if (r.width > 160 && r.height > 80) {
       c.save();
       c.clipRRect(rr);
-      final corner = Rect.fromLTWH(r.right - r.width * 0.45, r.top, r.width * 0.45, r.height);
-      final (thin, bold) = _contours(corner, seed: 23, cell: 6, levels: 18, scale: 120);
-      final fade = Paint()
-        ..shader = ui.Gradient.linear(corner.centerRight, corner.centerLeft, [t.line.withValues(alpha: 0.14), t.line.withValues(alpha: 0)]);
-      c.drawPath(thin, fade
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.7);
-      c.drawPath(bold, Paint()
-        ..shader = fade.shader
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.1);
+      final patch = _contourPatch(scene);
+      final w = math.min(r.width * 0.45, _patchSize.width);
+      // Its right edge (where the lines are strongest) at the panel's.
+      c.translate(r.right - _patchSize.width, r.top);
+      c.clipRect(Rect.fromLTWH(_patchSize.width - w, 0, w, math.min(r.height, _patchSize.height)));
+      c.drawPicture(patch);
       c.restore();
     }
     _topoEdge(c, r, scene, corners, lit: lit);
   });
 }
+
+/// The size of the kept patch of contours panels show a corner of.
+const _patchSize = Size(220, 420);
+
+final _patches = <Scene, ui.Picture>{};
+
+/// A patch of contour lines, fading out toward its left, made once.
+ui.Picture _contourPatch(Scene scene) => _patches[scene] ??= () {
+      final t = _topoOf(scene);
+      final recorder = ui.PictureRecorder();
+      final c = Canvas(recorder);
+      final rect = Offset.zero & _patchSize;
+      final (thin, bold) = _contours(rect, seed: 23, cell: 6, levels: 18, scale: 120);
+      final shader = ui.Gradient.linear(rect.centerRight, rect.centerLeft, [t.line.withValues(alpha: 0.14), t.line.withValues(alpha: 0)]);
+      c.drawPath(thin, Paint()
+        ..shader = shader
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.7);
+      c.drawPath(bold, Paint()
+        ..shader = shader
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.1);
+      return recorder.endRecording();
+    }();
 
 void _topoButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radius) {
   if (rect.isEmpty) return;
@@ -248,7 +256,6 @@ void _topoKnob(Canvas c, Offset center, double r, Scene scene, Color colour) {
 void _topoCoverFrame(Canvas c, Rect rect, Scene scene, double radius) {
   final t = _topoOf(scene);
   c.drawRRect(RRect.fromRectAndRadius(rect, Radius.circular(radius)).deflate(0.6), _stroke(t.ink.withValues(alpha: 0.5), 1));
-  if (rect.shortestSide > 40) _ticks(c, rect.inflate(3), t.signal, len: 6, inset: 0);
 }
 
 /// A scale bar: a rule with ticks, its first span filled.
