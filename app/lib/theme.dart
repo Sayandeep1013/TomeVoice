@@ -165,7 +165,7 @@ class Skin {
   }
 
   /// The scene where [c] is, when the theme is a scene theme (scene.dart).
-  static Scene? sceneOf(BuildContext c) => paletteOf(c).scene;
+  static Scene? sceneOf(BuildContext c) => paletteOf(c).sceneFor(Theme.of(c).brightness);
 
   /// What a screen is drawn on: the diagonal wash, or a scene's backdrop.
   static Decoration groundDecoration(BuildContext c) {
@@ -271,6 +271,8 @@ class Skin {
       Scene.botanical => ('CormorantGaramond', 1.14, 0.01, FontWeight.w600),
       Scene.ukiyoe => ('MarcellusSC', 0.94, 0.08, FontWeight.w400),
       Scene.marble => ('Cinzel', 0.9, 0.06, FontWeight.w400),
+      // A survey map's plain, wide lettering.
+      Scene.topoDay || Scene.topoNight => ('Figtree', 0.96, 0.06, FontWeight.w700),
     };
     final s = size * scale;
     return TextStyle(
@@ -445,7 +447,7 @@ class Skin {
     final pill = RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.pill));
     // In a scene (scene_crafted.dart): its sheets, dialogs, menus and
     // drawer edged in its material, its own knob, its own buttons.
-    final scene = palette.scene;
+    final scene = palette.sceneFor(b);
     ShapeBorder edged(BorderRadius r) => scene == null ? RoundedRectangleBorder(borderRadius: r) : SceneEdge(scene, borderRadius: r);
 
     return ThemeData(
@@ -605,7 +607,7 @@ class Skin {
           textStyle: uiStyle(15, FontWeight.w700),
           // On the board: scribbled in with chalk, a chalk rim round it. In
           // a scene with controls of its own: its glass, slate or leather.
-          backgroundBuilder: palette.scene == Scene.sketch
+          backgroundBuilder: scene == Scene.sketch
               ? (context, states, child) => CustomPaint(
                     painter: states.contains(WidgetState.disabled) ? null : SketchFillPainter(amber),
                     child: child,
@@ -644,6 +646,8 @@ class Skin {
               Scene.botanical => const Color(0xCCC6A25A),
               Scene.ukiyoe => const Color(0xCC1F1B17),
               Scene.marble => const Color(0xCCC09A4E),
+              Scene.topoDay => const Color(0x994A453D),
+              Scene.topoNight => const Color(0x99B8BEC7),
             },
             width: scene == null ? 1 : 1.2,
           ),
@@ -722,6 +726,7 @@ class Palette {
     this.dayDanger = Skin.danger,
     this.nightDanger = Skin.nightDanger,
     this.scene,
+    this.nightScene,
   }) : _dayCapsule = dayCapsule;
 
   final String id;
@@ -781,6 +786,13 @@ class Palette {
   /// A scene theme's place (scene.dart): its art behind every screen, its
   /// frames and panels. Null for a colour theme.
   final Scene? scene;
+
+  /// The place by night, for the one scene that has both (Topography); else
+  /// [scene], whichever the brightness.
+  final Scene? nightScene;
+
+  /// The place shown in [b].
+  Scene? sceneFor(Brightness b) => b == Brightness.dark ? (nightScene ?? scene) : scene;
 
   Color inkFor(Brightness b) => b == Brightness.dark ? nightInk : dayInk;
   Color inkSoftFor(Brightness b) => b == Brightness.dark ? nightInkSoft : dayInkSoft;
@@ -1235,10 +1247,37 @@ class Palette {
     scene: Scene.marble,
   ));
 
+  /// Topography: a survey map's contour lines, by day on warm paper and by
+  /// night on charcoal, following light and dark like the plain themes.
+  static final topo = readable(const Palette(
+    id: 'scene-topo',
+    label: 'Topography',
+    day: [Color(0xFFF4F1E9), Color(0xFFEFEBE1), Color(0xFFF2EFE6), Color(0xFFE9E4D8)],
+    night: [Color(0xFF17191C), Color(0xFF141619), Color(0xFF16181B), Color(0xFF101214)],
+    accent: Color(0xFFE8603C),
+    accentSoft: Color(0xFFFF9A72),
+    accentDeep: Color(0xFFA63D1E),
+    onAccent: Color(0xFF1A0C06),
+    nightCapsule: Color(0xF2202328),
+    nightSheet: Color(0xFF131518),
+    dayCapsule: Color(0xF2FCFBF7),
+    daySheet: Color(0xFFFBF9F4),
+    dayInk: Color(0xFF1E2024),
+    dayInkSoft: Color(0xFF45484D),
+    dayInkFaint: Color(0xFF50545A),
+    nightInk: Color(0xFFEEF0F2),
+    nightInkSoft: Color(0xFFBEC3C9),
+    nightInkFaint: Color(0xFFA3A9B0),
+    scene: Scene.topoDay,
+    nightScene: Scene.topoNight,
+  ));
+
   static final scenes = [
     forestScene, silverWitch, solar, dungeon, sketch, blackRose, silverDragon, oldTome,
     // By day.
     morris, botanical, ukiyoe, marble,
+    // By day and by night.
+    topo,
   ];
 
   static final all = [paper, forest, lavender, ocean, black, ...designer, ...scenes];
@@ -1332,6 +1371,7 @@ class Palette {
         dayDanger: dayDanger ?? this.dayDanger,
         nightDanger: nightDanger ?? this.nightDanger,
         scene: scene,
+        nightScene: nightScene,
       );
 
   /// The brightness this palette is shown in, given the reader's choice.

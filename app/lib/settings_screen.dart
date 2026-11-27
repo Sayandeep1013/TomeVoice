@@ -1292,7 +1292,11 @@ class _DesignerSheet extends StatelessWidget {
               style: Skin.ui(size: 14.5, weight: on ? FontWeight.w700 : FontWeight.w600, color: Skin.inkOn(context)),
             ),
             Text(
-              on ? 'On now · always ${scene.light ? 'light' : 'dark'}' : '${scene.note} · always ${scene.light ? 'light' : 'dark'}',
+              () {
+                // Topography follows light and dark; the others are one way.
+                final way = p.nightScene != null ? 'light or dark' : 'always ${scene.light ? 'light' : 'dark'}';
+                return on ? 'On now · $way' : '${scene.note.replaceFirst(', by day', '')} · $way';
+              }(),
               maxLines: 2,
               style: Skin.ui(size: 12.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
             ),

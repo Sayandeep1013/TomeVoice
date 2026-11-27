@@ -34,7 +34,7 @@ class BrandMark extends StatelessWidget {
             tileTop: dark ? p.night[0] : p.daySheet,
             ink: dark ? p.nightInk : p.dayInk,
             accent: dark ? p.accent : p.accentDeep,
-            scene: p.scene,
+            scene: p.sceneFor(dark ? Brightness.dark : Brightness.light),
           ),
         ),
       ),
@@ -137,7 +137,7 @@ class BrandPainter extends CustomPainter {
       case null:
         return;
       // Rimmed in paintBrandRim.
-      case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+      case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble || Scene.topoDay || Scene.topoNight:
         return;
       case Scene.dungeon:
         // Rusted iron with four rivets.

@@ -105,11 +105,20 @@ void main() {
     });
 
     test('each scene is a theme of its own, dark only (a light one light only), found by its id, its book colour keeping the scene', () {
-      expect(Palette.scenes.map((p) => p.scene), Scene.values);
+      // Every place is some theme's, by day or by night.
+      expect({for (final p in Palette.scenes) ...[p.scene!, if (p.nightScene != null) p.nightScene!]}, Scene.values.toSet());
       for (final p in Palette.scenes) {
         expect(Palette.all, contains(p));
         expect(Palette.byId(p.id), same(p));
-        expect(p.only, p.scene!.light ? Brightness.light : Brightness.dark, reason: p.label);
+        // Topography follows light and dark: its day place by day, its night
+        // place by night. The others are one way.
+        if (p.nightScene != null) {
+          expect(p.only, isNull, reason: p.label);
+          expect(p.sceneFor(Brightness.light)!.light, isTrue);
+          expect(p.sceneFor(Brightness.dark)!.light, isFalse);
+        } else {
+          expect(p.only, p.scene!.light ? Brightness.light : Brightness.dark, reason: p.label);
+        }
         expect(p.withTint(0xFF3366AA).scene, p.scene, reason: 'a book cover tints it, the place stays');
       }
       for (final p in [Palette.forest, ...Palette.designer]) {
@@ -135,8 +144,8 @@ void main() {
       await settleIo(tester);
       final list = find.byType(Scrollable).first;
       await tester.scrollUntilVisible(find.text('Designer themes'), 300, scrollable: list);
-      expect(find.textContaining('${Scene.values.length} scenes'), findsOneWidget);
-      expect(find.byType(ScenePreview), findsNWidgets(Scene.values.length), reason: 'a glimpse of each in the row');
+      expect(find.textContaining('${Palette.scenes.length} scenes'), findsOneWidget);
+      expect(find.byType(ScenePreview), findsNWidgets(Palette.scenes.length), reason: 'a glimpse of each in the row');
       // The colour row has no scenes in it.
       for (final p in Palette.scenes) {
         expect(find.text(p.label), findsNothing, reason: p.label);
@@ -183,7 +192,8 @@ void main() {
       for (final scene in Scene.values) {
         final recorder = ui.PictureRecorder();
         final canvas = Canvas(recorder);
-        for (final fill in [const Color(0xF2221A15), Palette.scenes[scene.index].accent]) {
+        final p = Palette.scenes.firstWhere((p) => p.scene == scene || p.nightScene == scene);
+        for (final fill in [const Color(0xF2221A15), p.accent]) {
           paintButton(canvas, const Rect.fromLTWH(0, 0, 44, 44), scene, fill, BorderRadius.circular(999));
           paintButton(canvas, const Rect.fromLTWH(0, 0, 120, 36), scene, fill, BorderRadius.circular(999));
         }

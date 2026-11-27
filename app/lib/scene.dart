@@ -13,6 +13,7 @@ import 'speech_service.dart';
 part 'scene_crafted.dart';
 part 'scene_light.dart';
 part 'scene_sketch.dart';
+part 'scene_topo.dart';
 
 /// Scene themes: a place, not a colour. Each draws its own backdrop behind
 /// every screen (stone and torches, a forest, the sun), frames the
@@ -47,7 +48,11 @@ enum Scene {
   morris('Morris garden', 'Willow boughs, printed linen and indigo'),
   botanical('Botanical', 'Redouté roses, watercolour and gold'),
   ukiyoe('Ukiyo-e', 'The Red Fuji, washi paper and seals'),
-  marble('Marble and gold', 'Veined white marble and gold leaf');
+  marble('Marble and gold', 'Veined white marble and gold leaf'),
+  // Topography (scene_topo.dart): a survey map's contour lines, the one
+  // scene with a day and a night; its palette carries both.
+  topoDay('Topography', 'Contour lines of a survey map, by day'),
+  topoNight('Topography', 'Contour lines of a survey map, by night');
 
   const Scene(this.label, this.note, {Scene? kin, this.hue, this.saturation = 1}) : _kin = kin;
 
@@ -63,7 +68,10 @@ enum Scene {
   Scene get kin => _kin ?? this;
 
   /// A place by day: a pale backdrop, dark type, light controls.
-  bool get light => lightScenes.contains(this);
+  bool get light => lightScenes.contains(this) || this == Scene.topoDay;
+
+  /// The survey map, by day or by night.
+  bool get topo => topoScenes.contains(this);
 
   /// The hue its kin's colours are turned to (null: its kin's own), and
   /// how much of their colour stays.
@@ -80,6 +88,7 @@ enum Scene {
         Scene.botanical => 18,
         Scene.ukiyoe => 4,
         Scene.marble => 10,
+        Scene.topoDay || Scene.topoNight => 8,
       };
 
   /// How far a hull's panels and buttons are cut at two corners.
@@ -328,6 +337,8 @@ void paintBackdrop(Canvas canvas, Size size, Scene scene) {
       _vignette(canvas, size);
     case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
       _paintLightBackdrop(canvas, size, scene);
+    case Scene.topoDay || Scene.topoNight:
+      _paintTopoBackdrop(canvas, size, scene);
   }
 }
 
@@ -1075,14 +1086,18 @@ void bracket(Canvas c, Offset corner, double len, double dx, double dy, Color co
 /// [scene]'s frame round a cover filling [rect], its corners [radius].
 void paintCoverFrame(Canvas c, Rect rect, Scene scene, double radius) {
   if (_craftedCoverFrame(c, rect, scene, radius)) return;
+  if (scene.topo) {
+    _topoCoverFrame(c, rect, scene, radius);
+    return;
+  }
   if (scene.light) {
     _lightCoverFrame(c, rect, scene, radius);
     return;
   }
   final t = (rect.width * 0.06).clamp(2.5, 9.0);
   switch (scene.kin) {
-    // Drawn in scene_light.dart before this.
-    case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+    // Drawn in scene_light.dart or scene_topo.dart before this.
+    case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble || Scene.topoDay || Scene.topoNight:
       break;
     case Scene.dungeon:
       final rr = RRect.fromRectAndRadius(rect.deflate(t / 2), Radius.circular(math.max(radius, t)));
@@ -1262,14 +1277,18 @@ void paintPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {bool li
     }
   }
   if (_craftedPanel(c, rect, scene, corners, lit: lit)) return;
+  if (scene.topo) {
+    _topoPanel(c, rect, scene, corners, lit: lit);
+    return;
+  }
   if (scene.light) {
     _lightPanel(c, rect, scene, corners, lit: lit);
     return;
   }
   final r = math.Random((rect.width * 31 + rect.height).round());
   switch (scene.kin) {
-    // Drawn in scene_light.dart before this.
-    case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+    // Drawn in scene_light.dart or scene_topo.dart before this.
+    case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble || Scene.topoDay || Scene.topoNight:
       break;
     case Scene.dungeon:
       c.drawRRect(
@@ -1451,6 +1470,10 @@ class _SceneButtonPainter extends BoxPainter {
 /// A button of [scene]'s material at [rect].
 void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radius) {
   if (_craftedButton(c, rect, scene, fill, radius)) return;
+  if (scene.topo) {
+    _topoButton(c, rect, scene, fill, radius);
+    return;
+  }
   if (scene.light) {
     _lightButton(c, rect, scene, fill, radius);
     return;
@@ -1475,8 +1498,8 @@ void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radi
   c.save();
   c.clipPath(path);
   switch (scene.kin) {
-    // Drawn in scene_light.dart before this.
-    case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+    // Drawn in scene_light.dart or scene_topo.dart before this.
+    case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble || Scene.topoDay || Scene.topoNight:
       break;
     case Scene.dungeon:
       // Pitted stone (or glowing coal, lit), lit along the top.
@@ -1508,8 +1531,8 @@ void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radi
   }
   c.restore();
   switch (scene.kin) {
-    // Drawn in scene_light.dart before this.
-    case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+    // Drawn in scene_light.dart or scene_topo.dart before this.
+    case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble || Scene.topoDay || Scene.topoNight:
       break;
     case Scene.dungeon:
       c.drawPath(path, _stroke(Colors.black.withValues(alpha: 0.75), 1.4));
@@ -1704,6 +1727,8 @@ class LifePainter extends CustomPainter {
         _oldTomeLife(canvas, s, t);
       case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
         _lightLife(canvas, s, t, scene);
+      case Scene.topoDay || Scene.topoNight:
+        _topoLife(canvas, s, t, scene);
     }
     canvas.restore();
   }
@@ -2166,14 +2191,18 @@ class _EmptyPainter extends CustomPainter {
   @override
   void paint(Canvas c, Size s) {
     if (paintOwnEmpty(c, s, scene)) return;
+    if (scene.topo) {
+      _topoCompass(c, s, scene);
+      return;
+    }
     if (scene.light) {
       _lightEmpty(c, s, scene);
       return;
     }
     final m = Offset(s.width / 2, s.height / 2);
     switch (scene.kin) {
-      // Drawn in scene_light.dart before this.
-      case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+      // Drawn in scene_light.dart or scene_topo.dart before this.
+      case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble || Scene.topoDay || Scene.topoNight:
         break;
       case Scene.dungeon:
         // A candle stub burning on a skull.
@@ -2267,6 +2296,8 @@ class _OrnamentPainter extends CustomPainter {
     switch ((scene.kin, foot)) {
       case (Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble, final foot):
         _lightOrnament(c, s, scene, foot: foot);
+      case (Scene.topoDay || Scene.topoNight, final foot):
+        _topoOrnament(c, s, scene, foot: foot);
       case (Scene.dungeon, false):
         // Crossed bones behind a skull.
         final m = Offset(s.width / 2, s.height / 2);
@@ -2399,13 +2430,17 @@ class _DividerPainter extends CustomPainter {
   void paint(Canvas c, Size s) {
     final y = s.height / 2;
     if (paintOwnDivider(c, s, scene)) return;
+    if (scene.topo) {
+      _topoDivider(c, s, scene);
+      return;
+    }
     if (scene.light) {
       _lightDivider(c, s, scene);
       return;
     }
     switch (scene.kin) {
-      // Drawn in scene_light.dart before this.
-      case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble:
+      // Drawn in scene_light.dart or scene_topo.dart before this.
+      case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble || Scene.topoDay || Scene.topoNight:
         break;
       case Scene.dungeon:
         final rune = _stroke(_k(scene, const Color(0xFF8A6A4A)).withValues(alpha: 0.55), 1.1);
