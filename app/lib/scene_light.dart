@@ -190,6 +190,35 @@ void _marble(Canvas c, Rect rect, {required int seed, double veins = 1, bool gol
   c.restore();
 }
 
+/// The size of the kept slabs of marble panels and buttons are cut from.
+const _slabSize = Size(480, 900);
+
+final _slabs = <bool, ui.Picture>{};
+
+/// [rect] filled with marble cut from one slab made once and kept (with
+/// gold veins or without), a different part of it for each size: veined
+/// anew for every panel and button size, a first scroll lost 110-130 ms
+/// frames as new sizes came in.
+void _marbleSlab(Canvas c, Rect rect, {required bool gold}) {
+  final slab = _slabs[gold] ??= () {
+    final recorder = ui.PictureRecorder();
+    _marble(Canvas(recorder), Offset.zero & _slabSize, seed: gold ? 7 : 5, veins: 1.6, gold: gold);
+    return recorder.endRecording();
+  }();
+  c.save();
+  c.clipRect(rect);
+  // Where in the slab: from the size, so the same panel always shows the
+  // same stone.
+  final dx = ((rect.width * 7 + rect.height * 3) % math.max(1.0, _slabSize.width - rect.width)).toDouble();
+  final dy = ((rect.height * 5 + rect.width) % math.max(1.0, _slabSize.height - rect.height)).toDouble();
+  c.translate(rect.left - dx, rect.top - dy);
+  final sx = rect.width > _slabSize.width ? rect.width / _slabSize.width : 1.0;
+  final sy = rect.height > _slabSize.height ? rect.height / _slabSize.height : 1.0;
+  if (sx > 1 || sy > 1) c.scale(math.max(sx, sy));
+  c.drawPicture(slab);
+  c.restore();
+}
+
 // ---------------------------------------------------------------------------
 // Panels and edges.
 
@@ -277,7 +306,7 @@ void _lightFace(Canvas c, Rect rect, Scene scene, BorderRadius corners, {require
     case _:
       c.save();
       c.clipRRect(rr);
-      _marble(c, rect, seed: (rect.width + rect.height * 3).round(), veins: (rect.width * rect.height / 90000).clamp(0.3, 1.2), gold: rect.height > 60);
+      _marbleSlab(c, rect, gold: rect.height > 60);
       // Polished: a long soft reflection from the upper left.
       c.drawRect(
         rect,
@@ -556,7 +585,7 @@ void _lightButtonFace(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius
       } else {
         c.save();
         c.clipRRect(rr);
-        _marble(c, rect, seed: (rect.width * 3).round(), veins: 0.3, gold: false);
+        _marbleSlab(c, rect, gold: false);
         // A chosen row's tint washed over the stone.
         c.drawRect(rect, _fill(fill.withValues(alpha: 0.35)));
         c.restore();
