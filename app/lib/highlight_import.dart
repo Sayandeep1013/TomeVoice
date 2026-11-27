@@ -435,7 +435,7 @@ List<ForeignHighlight> readKoboDatabase(String path) {
         ),
     ];
   } finally {
-    db.dispose();
+    db.close();
   }
 }
 

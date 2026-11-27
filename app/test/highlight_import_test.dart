@@ -150,8 +150,8 @@ void main() {
       add.execute(['b', 'uuid-1', 'uuid-1!c1', null, null, '2025-03-03T21:20:00.000', 0.5, 'false', 'dogear']);
       add.execute(['c', 'uuid-1', 'uuid-1!c2', 'Hidden away.', null, '2025-03-04T10:00:00.000', 0.2, 'true', 'highlight']);
       add.execute(['d', 'file:///mnt/onboard/Herbert/Dune - Frank Herbert.epub', 'x', 'Fear is the mind-killer.', null, '2025-03-05T09:00:00.000', 0.3, 'false', 'highlight']);
-      add.dispose();
-      db.dispose();
+      add.close();
+      db.close();
 
       final h = readKoboDatabase(path);
       expect(h.map((e) => (e.title, e.author, e.text, e.note)), [
@@ -214,9 +214,9 @@ void main() {
           '<w:r>${italic ? '<w:rPr><w:i/></w:rPr>' : ''}<w:t xml:space="preserve">$t</w:t></w:r>';
       String cell(String runs) => '<w:tc><w:p>$runs</w:p></w:tc>';
       final xml = '<w:document><w:body><w:tbl><w:tr>${cell('')}${cell(run('The Art of Thinking Clearly', italic: true) + run(' Rolf Dobelli'))}</w:tr></w:tbl>'
-          '<w:tbl><w:tr>${cell(run('The unsuccessful don&apos;t write books.', italic: true) + run(' Harsh reality ') + run('April 27, 2021 ') + '<w:hyperlink>${run('13')}</w:hyperlink>')}</w:tr></w:tbl>'
+          '<w:tbl><w:tr>${cell('${run('The unsuccessful don&apos;t write books.', italic: true)}${run(' Harsh reality ')}${run('April 27, 2021 ')}<w:hyperlink>${run('13')}</w:hyperlink>')}</w:tr></w:tbl>'
           '</w:body></w:document>';
-      final zip = Archive()..addArchiveFile(ArchiveFile.bytes('word/document.xml', utf8.encode(xml)));
+      final zip = Archive()..addFile(ArchiveFile.bytes('word/document.xml', utf8.encode(xml)));
       final h = parsePlayBooksNotes(ZipEncoder().encodeBytes(zip), fileName: 'Notes.docx');
       expect(h.map((e) => (e.title, e.author, e.text, e.note)), [
         ('The Art of Thinking Clearly', 'Rolf Dobelli', "The unsuccessful don't write books.", 'Harsh reality'),
