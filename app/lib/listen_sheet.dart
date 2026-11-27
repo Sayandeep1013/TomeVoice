@@ -1687,7 +1687,6 @@ class _VoicePickerState extends State<_VoicePicker> {
                               const SizedBox(height: Gap.s),
                             ],
                             if (ListeningPrefs.loaded?.naturalVoices != false) _naturalVoices(context),
-                            if (!playBuild) _elevenVoices(context),
                             for (final group in byRegion.entries) ...[
                               if (byRegion.length > 1 || group.key.isNotEmpty)
                                 Padding(
@@ -1718,6 +1717,11 @@ class _VoicePickerState extends State<_VoicePicker> {
                                   },
                                 ),
                               ),
+                            ],
+                            // Voices from the reader's own ElevenLabs account.
+                            if (!playBuild) ...[
+                              const SizedBox(height: Gap.m),
+                              _elevenVoices(context),
                             ],
                             Padding(
                               padding: const EdgeInsets.fromLTRB(Gap.l, Gap.l, Gap.l, 0),
