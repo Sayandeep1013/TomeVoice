@@ -166,7 +166,8 @@ class ReaderPlayerBar extends StatelessWidget {
       decoration: Skin.panel(
         context,
         BoxDecoration(
-          color: Color.lerp(Skin.darkOn(context), Skin.accentOf(context), 0.16),
+          // In the book's colour by night; by day the light bar as it is.
+          color: Skin.isDark(context) ? Color.lerp(Skin.darkOn(context), Skin.accentOf(context), 0.16) : Skin.darkOn(context),
           borderRadius: BorderRadius.circular(Radii.card + 4),
           boxShadow: Skin.lift(context),
         ),

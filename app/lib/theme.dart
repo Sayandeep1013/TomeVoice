@@ -700,7 +700,7 @@ class Palette {
     required this.onAccent,
     required this.nightCapsule,
     required this.nightSheet,
-    this.dayCapsule = const Color(0x99FFFFFF),
+    Color? dayCapsule,
     this.daySheet = const Color(0xFFF7F1E6),
     this.only,
     this.dayInk = Skin.ink,
@@ -712,7 +712,7 @@ class Palette {
     this.dayDanger = Skin.danger,
     this.nightDanger = Skin.nightDanger,
     this.scene,
-  });
+  }) : _dayCapsule = dayCapsule;
 
   final String id;
   final String label;
@@ -738,9 +738,11 @@ class Palette {
   final Color onAccent;
   final Color nightCapsule;
   final Color nightSheet;
-  /// A card on the light ground: white let a little way through, so it
-  /// takes the ground's tint and is light, never a slab of pure white.
-  final Color dayCapsule;
+  /// A card on the light ground: the ground's lightest band most of the way
+  /// to white, so it is light in the theme's own tint, never a slab of pure
+  /// white; all but opaque, as the dark theme's are.
+  Color get dayCapsule => _dayCapsule ?? Color.lerp(day[0], Colors.white, 0.62)!.withAlpha(0xF2);
+  final Color? _dayCapsule;
   final Color daySheet;
 
   /// The bar under a player by day: the ground's deeper band let into the
@@ -846,7 +848,7 @@ class Palette {
     onAccent: Color(0xFF1E140B),
     nightCapsule: Color(0xF241372C),
     nightSheet: Color(0xFF17130E),
-    dayCapsule: Color(0xA6FFFDF7),
+    dayCapsule: Color(0xF2FDF9F1),
     daySheet: Color(0xFFFBF6EC),
     // Sepia type, as printed.
     dayInk: Color(0xFF221A12),
@@ -1220,7 +1222,7 @@ class Palette {
         onAccent: onAccent ?? this.onAccent,
         nightCapsule: nightCapsule ?? this.nightCapsule,
         nightSheet: nightSheet ?? this.nightSheet,
-        dayCapsule: dayCapsule ?? this.dayCapsule,
+        dayCapsule: dayCapsule ?? _dayCapsule,
         daySheet: daySheet ?? this.daySheet,
         only: only,
         dayInk: dayInk ?? this.dayInk,

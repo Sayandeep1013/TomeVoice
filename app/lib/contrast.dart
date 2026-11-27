@@ -212,10 +212,12 @@ List<ContrastNeed> needsOf(Palette p, Brightness b) {
   return out;
 }
 
-/// The dark bar under a player, plain and in the accent's tint (the dock).
+/// The bar under a player, plain and, by night, in the accent's tint (the
+/// dock). By day it is light, between the ground's deeper band and the
+/// sheet, so what reads on both reads on it.
 List<Color> darkBarsOf(Palette p, Brightness b) {
   final bar = Skin.darkFor(p, b);
-  return [bar, Color.lerp(bar, p.accent, 0.16)!];
+  return [bar, if (b == Brightness.dark) Color.lerp(bar, p.accent, 0.16)!];
 }
 
 /// What a slider sits on by day: light sheets and capsules, and the bar
@@ -275,14 +277,15 @@ Palette _readableIn(Palette p, Brightness b) {
   final faint = fit(fit(q.inkFaintFor(b), surfaces), picked, largeText);
   final soft = _noWeaker(fit(fit(q.inkSoftFor(b), surfaces), picked, largeText), than: faint, dark: dark);
   var ink = fit(fit(q.inkFor(b), [...surfaces, ...picked]), readAloudOf(q, b));
-  // The ink is also what the bar and a snack bar say.
-  ink = fit(ink, chrome);
+  // By night the ink is also what the dark bar and a snack bar say. By day
+  // they are light, between the ground and the sheet: what reads on those
+  // reads on them, with nothing moved.
+  if (dark) ink = fit(ink, chrome);
   ink = _noWeaker(ink, than: soft, dark: dark);
   final danger = fit(q.dangerFor(b), surfaces);
-  var text = fit(fit(dark ? q.accentSoft : q.accentDeep, surfaces), picked, largeText);
-  // By day the deep accent is what is lit on the bar and a snack bar's
-  // action; by night the soft one is.
-  if (!dark) text = fit(text, chrome);
+  final text = fit(fit(dark ? q.accentSoft : q.accentDeep, surfaces), picked, largeText);
+  // By night the soft accent is lit on the dark bar and a snack bar's
+  // action; by day the deep one is, which reads there already.
   final accentSoft = dark ? readableOn(text, chrome, smallText, darker: false) : q.accentSoft;
   return q.copyWith(
     accentDeep: dark ? null : text,

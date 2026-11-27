@@ -2190,7 +2190,7 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets('a colour theme can be picked; Black and Paper fix the brightness', (tester) async {
+    testWidgets('a colour theme can be picked; Black fixes the brightness, Paper follows light and dark', (tester) async {
       phone(tester);
       await tester.pumpWidget(MaterialApp(home: SettingsScreen(store: LibraryStore(_tmp))));
       await settleIo(tester);
@@ -2202,7 +2202,9 @@ void main() {
       expect(ListeningPrefs.memory.paletteId, 'lavender');
       expect(Palette.lavender.modeFor(ThemeMode.light), ThemeMode.light);
       expect(Palette.black.modeFor(ThemeMode.light), ThemeMode.dark);
-      expect(Palette.paper.modeFor(ThemeMode.dark), ThemeMode.light);
+      // Paper, the theme a reader starts in, has a night of its own.
+      expect(Palette.paper.modeFor(ThemeMode.dark), ThemeMode.dark);
+      expect(Palette.paper.modeFor(ThemeMode.light), ThemeMode.light);
 
       await tester.tap(find.text('Black'));
       await tester.pumpAndSettle();
