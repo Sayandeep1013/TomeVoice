@@ -24,6 +24,7 @@ import 'noveldokusha_import.dart';
 import 'own_colours.dart';
 import 'own_colours_sheet.dart';
 import 'download_queue.dart' show DownloadPace;
+import 'play_update.dart';
 import 'prefs.dart';
 import 'problem_report.dart';
 import 'relayout.dart';
@@ -851,10 +852,11 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                     _Group(
                       title: 'About',
                       children: [
-                        if (!playBuild)
                         SwitchRow(
                           title: 'Tell me about new versions',
-                          subtitle: 'Asks GitHub every few hours whether a newer TomeVoice is out',
+                          subtitle: playBuild
+                              ? 'Asks Google Play whether a newer TomeVoice is out, and updates it here'
+                              : 'Asks GitHub every few hours whether a newer TomeVoice is out',
                           value: _tellUpdates,
                           padding: EdgeInsets.zero,
                           onChanged: (v) {
@@ -1702,6 +1704,19 @@ class _AboutScreenState extends State<AboutScreen> {
     final root = widget.root;
     if (root == null || _checking) return;
     setState(() => _checking = true);
+    if (playBuild) {
+      final info = await PlayUpdates.check();
+      if (mounted) setState(() => _checking = false);
+      if (!mounted) return;
+      if (info == null) {
+        showSnack(context, 'Google Play could not say. Check the internet connection, or look in the Play Store.');
+      } else if (info.available || info.downloaded) {
+        unawaited(offerPlayUpdate(context, info));
+      } else {
+        showSnack(context, 'This is the latest TomeVoice.');
+      }
+      return;
+    }
     try {
       final update = await AppUpdates.check(root, force: true);
       if (!mounted) return;
@@ -1762,11 +1777,11 @@ class _AboutScreenState extends State<AboutScreen> {
                             .copyWith(height: 1.5),
                       ),
                       const SizedBox(height: Gap.xl),
-                      if (widget.root != null && !playBuild)
+                      if (widget.root != null)
                         _Link(
                           icon: Icons.system_update_outlined,
                           title: _checking ? 'Checking…' : 'Check for updates',
-                          subtitle: 'New versions are published on GitHub',
+                          subtitle: playBuild ? 'New versions come from Google Play' : 'New versions are published on GitHub',
                           onTap: _checkForUpdate,
                         ),
                       // Play: the source is offered on the licences page.

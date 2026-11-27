@@ -86,12 +86,14 @@ void main() {
       expect(play.voices, isNotEmpty);
     });
 
-    testWidgets('Settings: sources and web novels stay; no new-version check', (tester) async {
+    testWidgets("Settings: sources and web novels stay; new versions from Play, not GitHub", (tester) async {
       phone(tester);
       await tester.pumpWidget(MaterialApp(home: SettingsScreen(store: LibraryStore(tmp))));
       await tester.pumpAndSettle();
       final texts = await allTexts(tester);
-      expect(texts, isNot(contains('Tell me about new versions')));
+      expect(texts, contains('Tell me about new versions'));
+      expect(texts, contains('Asks Google Play whether a newer TomeVoice is out, and updates it here'));
+      expect(texts.where((t) => t.contains('GitHub')), isEmpty);
       for (final kept in [
         'Sources',
         'Import from NovelDokusha',
@@ -111,7 +113,9 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: AboutScreen(root: tmp)));
       await tester.pumpAndSettle();
       final texts = await allTexts(tester);
-      expect(texts, isNot(contains('Check for updates')));
+      // Updates come from Play, checked in the app.
+      expect(texts, contains('Check for updates'));
+      expect(texts, contains('New versions come from Google Play'));
       expect(texts, isNot(contains('Releases')));
       expect(texts, isNot(contains('Source code')));
       expect(texts.where((t) => t.contains('GitHub') || t.contains('github')), isEmpty);

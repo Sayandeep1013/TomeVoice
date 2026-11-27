@@ -10,6 +10,7 @@ import 'ai/memory/memory_background.dart';
 import 'ai/memory/memory_service.dart';
 import 'ai/memory/series_store.dart';
 import 'app_update.dart';
+import 'play_update.dart';
 import 'auto_backup.dart';
 import 'auto_download.dart';
 import 'background_check.dart';
@@ -359,6 +360,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
 
   @override
   void dispose() {
+    PlayUpdates.ready.removeListener(_playReady);
     _followTimer?.cancel();
     _widgetTimer?.cancel();
     unawaited(_widgetEvents?.cancel());
@@ -466,6 +468,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       // A new install's first shelf: a classic and two web novels.
       unawaited(Starter.seed(Directory(dir), store, sources));
       // A newer TomeVoice: on opening, and on coming back to the app.
+      if (playBuild) PlayUpdates.ready.addListener(_playReady);
       Future<void>.delayed(const Duration(seconds: 8), () => _offerUpdate(Directory(dir)));
       // Fixed sources: the lists are read again at most daily while the app
       // is used, so Browse and Sources can say an update is waiting.
@@ -578,12 +581,15 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
   /// put it off. Asked on opening and on coming back to the app; GitHub is
   /// asked at most every few hours (see AppUpdates.check).
   Future<void> _offerUpdate(Directory root) async {
-    // The Play build is updated by Play.
-    if (playBuild) return;
     // Not over the guide: asked again on coming back to the app.
     if (_offering || _guiding) return;
     _offering = true;
     try {
+      // The Play build asks Play (play_update.dart), never GitHub.
+      if (playBuild) {
+        await _offerPlayUpdate(root);
+        return;
+      }
       final update = await AppUpdates.check(root);
       if (update == null || update.version == _offered || !mounted) return;
       if (!await AppUpdates.shouldOffer(root, update) || !mounted) return;
@@ -594,6 +600,30 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
     } finally {
       _offering = false;
     }
+  }
+
+  /// The Play build's new version, from Play: offered unless skipped or put
+  /// off (kept as AppUpdates keeps GitHub's, by Play's version number); once
+  /// downloaded, a restart offered.
+  Future<void> _offerPlayUpdate(Directory root) async {
+    if (!await AppUpdates.enabled(root)) return;
+    final info = await PlayUpdates.check();
+    if (info == null || !mounted) return;
+    if (info.downloaded) {
+      offerPlayRestart(context);
+      return;
+    }
+    if (!info.available) return;
+    final key = 'play-${info.versionCode}';
+    if (key == _offered) return;
+    if (!await AppUpdates.shouldOffer(root, AppUpdate(version: key, url: '', title: '')) || !mounted) return;
+    _offered = key;
+    await offerPlayUpdate(context, info, root: root);
+  }
+
+  /// Play finished downloading while the app was open: a restart installs it.
+  void _playReady() {
+    if (PlayUpdates.ready.value && mounted) offerPlayRestart(context);
   }
 
   void _go(_Place place) {
