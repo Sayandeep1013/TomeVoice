@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show wordSpans;
 
+import 'eleven_labs.dart';
 import 'neural_voices.dart';
 import 'scheduler.dart';
 
@@ -121,6 +122,15 @@ class SpeechService {
       // it. Made anyway, each such sentence kept the jump's own one waiting
       // a whole sentence more, seconds of it with a natural voice.
       if (_cancels != cancels) throw PlatformException(code: 'TTS_STOPPED', message: 'Synthesis cancelled');
+      // An ElevenLabs voice, on the reader's own key (eleven_labs.dart).
+      if (isEleven(voiceName)) {
+        return await ElevenLabs.instance.synthesise(
+          voiceId: voiceName!.substring(elevenPrefix.length),
+          text: text,
+          speed: rate,
+          outDir: synthTempDir().path,
+        );
+      }
       // A natural voice is made here, not by the phone's speech engine.
       final natural = neuralVoiceFor(voiceName);
       if (natural != null) {

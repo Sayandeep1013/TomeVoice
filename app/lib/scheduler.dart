@@ -12,6 +12,7 @@ import 'package:tomevoice_audio/tomevoice_audio.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'dialogue.dart';
+import 'eleven_labs.dart';
 import 'neural_voices.dart';
 import 'reading_rules.dart';
 import 'speech_service.dart';
@@ -978,9 +979,11 @@ class PlaybackScheduler {
   /// character's to the dialogue voice), with a line on screen saying why.
   /// False when there is nothing to fall back to.
   bool _fallBack(String? narrator, String? dialogue, Object e, {bool character = false}) {
+    // An ElevenLabs voice too: out of credits, offline, a key gone.
+    bool gives(String? v) => (isNeural(v) || isEleven(v)) && !_failed.contains(v);
     final natural = [
-      if (isNeural(narrator) && !_failed.contains(narrator)) narrator!,
-      if (isNeural(dialogue) && !_failed.contains(dialogue)) dialogue!,
+      if (gives(narrator)) narrator!,
+      if (gives(dialogue)) dialogue!,
     ];
     if (natural.isEmpty) return false;
     if (natural.contains(narrator) && fallbackVoiceOf?.call() == null) return false;
@@ -990,9 +993,14 @@ class PlaybackScheduler {
       'to': fallbackVoiceOf?.call() ?? '',
       'why': voiceLogError(e),
     });
-    final name = neuralVoiceFor(natural.first)?.name ?? 'The natural voice';
+    final name = neuralVoiceFor(natural.first)?.name ?? ElevenLabs.instance.byVoiceName(natural.first)?.name ?? 'The natural voice';
     debugPrint('TomeVoice: $name failed ($e); reading on in the phone\'s voice');
-    notice.value = natural.contains(narrator)
+    // ElevenLabs says why (credits, the key, the network).
+    notice.value = e is ElevenError
+        ? (natural.contains(narrator)
+            ? "${e.message} The phone's own voice reads on."
+            : '${e.message} The narrator reads the dialogue.')
+        : natural.contains(narrator)
         ? "$name could not speak on this phone, so the phone's own voice reads on."
         : character
             ? "$name could not speak on this phone, so its character's lines are read in the dialogue voice."
@@ -1244,6 +1252,15 @@ class PlaybackScheduler {
         // A natural voice that cannot speak (a broken download, too little
         // memory, its worker gone): the same sentence again in the phone's
         // voice, not skipped.
+        // ElevenLabs busy (too many at once): the same sentence again, after
+        // a breath, twice, before it counts.
+        if (e is ElevenError && e.status == 429 && retries < 2) {
+          retries++;
+          await Future<void>.delayed(Duration(milliseconds: 900 * retries));
+          continue;
+        }
+        retries = 0;
+        // An ElevenLabs voice that cannot speak goes the way of a natural one.
         if (_fallBack(narrator, quoted, e, character: quoted != dialogue)) continue;
         failures++;
         _next = i + 1;
