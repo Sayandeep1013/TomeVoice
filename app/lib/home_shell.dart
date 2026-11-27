@@ -759,7 +759,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
           // light scene, pale enough.
           Positioned.fill(
             child: ColoredBox(
-              color: scene?.light ?? false ? Skin.paletteOf(context).daySheet.withValues(alpha: 0.72) : const Color(0x8C000000),
+              color: scene.light ? Skin.paletteOf(context).daySheet.withValues(alpha: 0.72) : const Color(0x8C000000),
             ),
           ),
           if (!chalk)

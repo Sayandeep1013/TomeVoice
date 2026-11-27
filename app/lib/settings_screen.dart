@@ -1324,7 +1324,7 @@ class _DesignerSheet extends StatelessWidget {
               style: Skin.ui(size: 14.5, weight: on ? FontWeight.w700 : FontWeight.w600, color: Skin.inkOn(context)),
             ),
             Text(
-              on ? 'On now · always dark' : '${scene.note} · always dark',
+              on ? 'On now · always ${scene.light ? 'light' : 'dark'}' : '${scene.note} · always ${scene.light ? 'light' : 'dark'}',
               maxLines: 2,
               style: Skin.ui(size: 12.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
             ),
