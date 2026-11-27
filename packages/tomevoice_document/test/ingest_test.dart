@@ -127,4 +127,18 @@ void main() {
     final again = Book.fromJson(book.toJson());
     expect(again.metadata.description, book.metadata.description);
   });
+
+  group('an Adobe .acsm licence', () {
+    const acsm = '<?xml version="1.0"?>\n<fulfillmentToken fulfillmentType="buy" xmlns="http://ns.adobe.com/adept">'
+        '<distributor>urn:uuid:0</distributor></fulfillmentToken>';
+    test('is refused saying it is a locked book, by its name or its content', () {
+      for (final name in ['book.acsm', 'URLLink.xml']) {
+        expect(
+          () => ingestBytes(Uint8List.fromList(utf8.encode(acsm)), filename: name),
+          throwsA(isA<UnsupportedDocumentException>().having((e) => e.message, 'message', contains('locked (DRM)'))),
+          reason: name,
+        );
+      }
+    });
+  });
 }

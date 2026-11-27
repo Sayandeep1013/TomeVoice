@@ -15,12 +15,12 @@ import 'brand.dart';
 import 'categories_screen.dart';
 import 'folders.dart';
 import 'guide.dart';
+import 'import_screen.dart';
 import 'library_store.dart';
 import 'listen_sheet.dart';
 import 'journal_questions_screen.dart';
 import 'neural_screen.dart';
 import 'novel_updates.dart';
-import 'noveldokusha_import.dart';
 import 'own_colours.dart';
 import 'own_colours_sheet.dart';
 import 'download_queue.dart' show DownloadPace;
@@ -322,49 +322,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   }
 
   /// Pick a NovelDokusha backup and bring its web novels into the library.
-  Future<void> _importNovelDokusha() async {
-    final List<PickedFile> files;
-    try {
-      files = await _svc.pickDocuments();
-    } on Object catch (e) {
-      debugPrint('File picker failed: $e');
-      if (mounted) showSnack(context, 'The file picker could not open. Try again.');
-      return;
-    }
-    if (files.isEmpty || !mounted) return;
-    final progress = ValueNotifier<String>('Reading the backup…');
-    unawaited(showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Importing'),
-        content: Row(
-          children: [
-            const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5)),
-            const SizedBox(width: Gap.l),
-            Expanded(child: ValueListenableBuilder<String>(valueListenable: progress, builder: (_, v, __) => Text(v))),
-          ],
-        ),
-      ),
-    ));
-    String message;
-    try {
-      final json = await _svc.readNovelDokushaBackup(files.first.path);
-      final report = await importNovelDokushaJson(widget.store, SourceEngine.instance.store, json,
-          onProgress: (title, done, total) => progress.value = '$title (${done + 1} of $total)');
-      message = report.novels == 0
-          ? 'That backup has no web novels in its library.'
-          : 'Imported ${report.novels} ${report.novels == 1 ? 'novel' : 'novels'} '
-              'with ${report.chapters} downloaded ${report.chapters == 1 ? 'chapter' : 'chapters'}.'
-              '${report.unmatched.isEmpty ? '' : ' Install a source for ${report.unmatched.join(', ')} to get new chapters.'}';
-    } on Object catch (e) {
-      message = e is PlatformException ? (e.message ?? e.code) : '$e';
-    }
-    if (!mounted) return;
-    Navigator.of(context, rootNavigator: true).pop();
-    progress.dispose();
-    showSnack(context, message, long: true);
-  }
+  Future<void> _importNovelDokusha() => importFromNovelDokusha(context, widget.store);
 
   Timer? _sampleTimer;
 
@@ -731,6 +689,14 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                               : 'Off. Keep places and quotes the same on your phones, or with KOReader',
                           onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
                             builder: (_) => SyncScreen(store: widget.store),
+                          )),
+                        ),
+                        _Link(
+                          icon: Icons.download_for_offline_outlined,
+                          title: 'Import from another app',
+                          subtitle: 'Books and highlights from Kindle, Google Play Books, Kobo, KOReader and more',
+                          onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                            builder: (_) => ImportScreen(store: widget.store),
                           )),
                         ),
                         _Link(
