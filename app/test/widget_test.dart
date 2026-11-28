@@ -1932,7 +1932,13 @@ void main() {
     testWidgets('tapping a book shows its chapters, voice and Play', (tester) async {
       await pumpShelf(tester);
       await tester.tap(find.text('alpha'));
-      await settleIo(tester, until: () => find.text('Listen').evaluate().isNotEmpty);
+      // The book read in: Read can be pressed (the chapters come lower down).
+      bool loaded() {
+        final read = find.ancestor(of: find.text('Read'), matching: find.byWidgetPredicate((w) => w is ButtonStyleButton));
+        return read.evaluate().isNotEmpty && (tester.widget(read.first) as ButtonStyleButton).onPressed != null;
+      }
+
+      await settleIo(tester, until: loaded);
 
       expect(find.byType(BookScreen), findsOneWidget);
       expect(find.text('Listen'), findsOneWidget);
