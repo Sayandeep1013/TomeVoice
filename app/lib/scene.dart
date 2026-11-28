@@ -26,7 +26,9 @@ enum Scene {
   silverWitch('Silver witch', 'Moonlight, mist and silver', kin: Scene.forest, hue: 215, saturation: 0.32),
   // Its own panels (a hull's plates, cut at two corners), turned to gold.
   solar('Space · solar', 'The sun, gold and the dark', hue: 38, saturation: 1.1),
-  dungeon('Dungeon', 'Torchlit stone, rust and bones');
+  dungeon('Dungeon', 'Torchlit stone, rust and bones'),
+  // Volcanic glass: the dungeon's furniture, in a colder light.
+  obsidianBlack('Obsidian black', 'Volcanic glass and cold light', kin: Scene.dungeon, hue: 210, saturation: 0.45);
 
   const Scene(this.label, this.note, {Scene? kin, this.hue, this.saturation = 1}) : _kin = kin;
 
@@ -118,7 +120,7 @@ ui.Image? sceneBackdrop(Scene scene, Size size, double dpr) {
 // the forest's trees and vines looked stiff up close; a painting does not.
 
 /// Scenes with a painted backdrop.
-const _withArt = {Scene.forest, Scene.silverWitch, Scene.solar, Scene.dungeon};
+const _withArt = {Scene.forest, Scene.silverWitch, Scene.solar, Scene.dungeon, Scene.obsidianBlack};
 
 /// Whether painted backdrops are loaded (off under `flutter test`, which
 /// keeps to the drawn ones).
@@ -1620,6 +1622,8 @@ class LifePainter extends CustomPainter {
         _silverWitchLife(canvas, s, t);
       case Scene.solar:
         _solarLife(canvas, s, t);
+      case Scene.obsidianBlack:
+        _obsidianLife(canvas, s, t);
     }
     canvas.restore();
   }
@@ -1704,6 +1708,30 @@ void _dungeonLife(Canvas c, Size s, double t) {
     final y = (d * 151.0 % s.height) + math.sin(t * 0.6 + d) * 14;
     final a = 0.10 + 0.08 * math.sin(t * 0.9 + d * 1.3);
     c.drawCircle(Offset(x, y), 0.9 + (d % 3) * 0.35, _fill(const Color(0xFFFFE6C0).withValues(alpha: a)));
+  }
+}
+
+void _obsidianLife(Canvas c, Size s, double t) {
+  // A cold sheen travelling over volcanic glass: two slow glints.
+  for (var i = 0; i < 2; i++) {
+    final phase = (t * 0.12 + i * 0.5) % 1.0;
+    final x = s.width * (0.18 + i * 0.58) + math.sin(t * 0.4 + i * 2.1) * 18;
+    final y = s.height * (0.2 + phase * 0.62);
+    final pulse = 0.5 + 0.5 * math.sin(t * 1.8 + i * 2.6);
+    _light(
+      c,
+      Offset(x, y),
+      70 + 50 * pulse,
+      const Color(0xFF93C5FD).withValues(alpha: 0.05 + 0.06 * pulse),
+      mid: 0.35,
+    );
+  }
+  // Fine reflections moving in the dark.
+  for (var i = 0; i < 14; i++) {
+    final x = (i * 83.0 + t * 3.0) % (s.width + 30) - 15;
+    final y = (i * 137.0 % s.height) + math.sin(t * 0.7 + i) * 10;
+    final a = 0.08 + 0.12 * (0.5 + 0.5 * math.sin(t * 1.1 + i * 1.7));
+    c.drawCircle(Offset(x, y), 0.7 + (i % 3) * 0.3, _fill(const Color(0xFFD6E9FF).withValues(alpha: a)));
   }
 }
 

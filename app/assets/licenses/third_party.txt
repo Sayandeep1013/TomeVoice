@@ -128,3 +128,6 @@ for TomeVoice (tools/scene_art.py):
 - Silver witch: John Atkinson Grimshaw, "A Moonlit Lane" (1874). Public
   domain.
 - Space, solar: NASA/SDO/AIA, a prominence eruption (2013). Public domain.
+- Obsidian black: "Obsidian 13" by James St. John,
+  https://www.flickr.com/photos/47445767@N05/49057144017/ , licensed under
+  CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/).

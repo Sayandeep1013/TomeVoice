@@ -65,6 +65,14 @@ SCENES = {
         'licences': {'Public domain'},
         'across': 0.25, 'trim': 0.01, 'brightness': 0.68, 'contrast': 1.12, 'colour': 0.3, 'tint': (0.82, 0.92, 1.1),
     },
+    'obsidianBlack': {
+        'file': 'Obsidian_13.jpg',
+        'credit': '"Obsidian 13" by James St. John, '
+                  'https://www.flickr.com/photos/47445767@N05/49057144017/, CC BY 2.0 '
+                  '(https://creativecommons.org/licenses/by/2.0/). Cropped and colour-graded.',
+        'licences': {'CC BY 2.0'},
+        'across': 0.5, 'brightness': 0.42, 'contrast': 1.25, 'colour': 0.55, 'tint': (0.82, 0.9, 1.12),
+    },
 }
 
 

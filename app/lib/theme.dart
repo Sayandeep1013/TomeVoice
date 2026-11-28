@@ -239,6 +239,7 @@ class Skin {
       Scene.silverWitch => ('Almendra', 1.0, 0.01, FontWeight.w400),
       Scene.solar => ('Cinzel', 0.9, 0.05, FontWeight.w400),
       Scene.dungeon => ('PirataOne', 1.12, 0.01, FontWeight.w400),
+      Scene.obsidianBlack => ('Cinzel', 0.94, 0.04, FontWeight.w400),
     };
     final s = size * scale;
     return TextStyle(
@@ -981,7 +982,23 @@ class Palette {
     scene: Scene.solar,
   ));
 
-  static final scenes = [forestScene, silverWitch, solar, dungeon];
+  static final obsidianBlack = readable(const Palette(
+    id: 'scene-obsidian-black',
+    label: 'Obsidian black',
+    day: [Color(0xFF06080D), Color(0xFF090C12), Color(0xFF0C1018), Color(0xFF040509)],
+    night: [Color(0xFF06080D), Color(0xFF090C12), Color(0xFF0C1018), Color(0xFF040509)],
+    // A cold sheen on volcanic glass.
+    accent: Color(0xFF93C5FD),
+    accentSoft: Color(0xFFBFDBFE),
+    accentDeep: Color(0xFF4B6F9C),
+    onAccent: Color(0xFF07101B),
+    nightCapsule: Color(0xF20B0F16),
+    nightSheet: Color(0xFF070A10),
+    only: Brightness.dark,
+    scene: Scene.obsidianBlack,
+  ));
+
+  static final scenes = [forestScene, silverWitch, solar, dungeon, obsidianBlack];
 
   static final all = [forest, lavender, ocean, black, paper, ...designer, ...scenes];
 
