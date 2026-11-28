@@ -4,7 +4,7 @@ description: >-
   HTML, Markdown and text, and reads them aloud with the owned audio pipeline.
   See docs/README.md.
 publish_to: none
-version: 2.8.0+50
+version: 2.9.0+51
 
 environment:
   sdk: ^3.5.0
