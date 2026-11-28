@@ -12,6 +12,7 @@ import 'package:tomevoice_audio/tomevoice_audio.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'dialogue.dart';
+import 'cloud_voices.dart';
 import 'eleven_labs.dart';
 import 'neural_voices.dart';
 import 'reading_rules.dart';
@@ -980,7 +981,7 @@ class PlaybackScheduler {
   /// False when there is nothing to fall back to.
   bool _fallBack(String? narrator, String? dialogue, Object e, {bool character = false}) {
     // An ElevenLabs voice too: out of credits, offline, a key gone.
-    bool gives(String? v) => (isNeural(v) || isEleven(v)) && !_failed.contains(v);
+    bool gives(String? v) => (isNeural(v) || isEleven(v) || isCloud(v)) && !_failed.contains(v);
     final natural = [
       if (gives(narrator)) narrator!,
       if (gives(dialogue)) dialogue!,
@@ -991,9 +992,9 @@ class PlaybackScheduler {
     // ElevenLabs out of reach for now (not the key, the plan or the
     // credits): asked again in a while, so a tunnel does not lose the
     // voice for the rest of the book.
-    final passing = e is ElevenError && e.passing;
+    final passing = e is PaidVoiceError && e.passing;
     if (passing) {
-      final back = [for (final v in natural) if (isEleven(v)) v];
+      final back = [for (final v in natural) if (isEleven(v) || isCloud(v)) v];
       Timer(const Duration(minutes: 2), () => _failed.removeAll(back));
     }
     VoiceLog.instance.note('fallback', {
@@ -1001,10 +1002,13 @@ class PlaybackScheduler {
       'to': fallbackVoiceOf?.call() ?? '',
       'why': voiceLogError(e),
     });
-    final name = neuralVoiceFor(natural.first)?.name ?? ElevenLabs.instance.byVoiceName(natural.first)?.name ?? 'The natural voice';
+    final name = neuralVoiceFor(natural.first)?.name ??
+        ElevenLabs.instance.byVoiceName(natural.first)?.name ??
+        CloudVoices.instance.byVoiceName(natural.first)?.name ??
+        'The natural voice';
     debugPrint('TomeVoice: $name failed ($e); reading on in the phone\'s voice');
     // ElevenLabs says why (credits, the key, the network).
-    notice.value = e is ElevenError
+    notice.value = e is PaidVoiceError
         ? (natural.contains(narrator)
             ? "${e.message} The phone's own voice reads on${passing ? ' for now' : ''}."
             : '${e.message} The narrator reads the dialogue${passing ? ' for now' : ''}.')
@@ -1275,7 +1279,7 @@ class PlaybackScheduler {
         // voice, not skipped.
         // ElevenLabs busy, or out of reach for a moment: the same sentence
         // again, after a breath, twice, before it counts.
-        if (e is ElevenError && e.passing && retries < 2) {
+        if (e is PaidVoiceError && e.passing && retries < 2) {
           retries++;
           await Future<void>.delayed(Duration(milliseconds: 900 * retries));
           continue;

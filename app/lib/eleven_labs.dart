@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
+import 'cloud_voices.dart' show PaidVoiceError;
 import 'secrets.dart';
 import 'sources/sha256.dart';
 
@@ -101,14 +102,16 @@ class ElevenUsage {
 }
 
 /// Why ElevenLabs said no, said for the reader.
-class ElevenError implements Exception {
+class ElevenError implements PaidVoiceError {
   const ElevenError(this.message, {this.status});
 
+  @override
   final String message;
   final int? status;
 
   /// It will likely pass: no answer (the network), busy, or ElevenLabs'
   /// own trouble. Not so for the key, the plan or the credits.
+  @override
   bool get passing => status == null || status == 429 || status! >= 500;
 
   @override

@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show wordSpans;
 
+import 'cloud_voices.dart';
 import 'eleven_labs.dart';
 import 'neural_voices.dart';
 import 'scheduler.dart';
@@ -133,6 +134,15 @@ class SpeechService {
           outDir: synthTempDir().path,
           previousText: previousText,
           nextText: nextText,
+        );
+      }
+      // A cloud voice (OpenAI, Google, Azure) on the reader's own key.
+      if (isCloud(voiceName)) {
+        return await CloudVoices.instance.synthesise(
+          voiceName: voiceName!,
+          text: text,
+          speed: rate,
+          outDir: synthTempDir().path,
         );
       }
       // A natural voice is made here, not by the phone's speech engine.

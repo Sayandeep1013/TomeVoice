@@ -64,6 +64,7 @@ import 'stats.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'voice_glow.dart';
+import 'vocabulary.dart';
 import 'voices.dart';
 import 'web_reader.dart';
 
@@ -1623,6 +1624,19 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void _share(Mark mark) =>
       unawaited(showQuoteShare(context, mark, cover: _cover, author: _book.metadata.authorLine));
 
+  /// [word], met in [sentence] at [unit], kept in Vocabulary to learn. Not
+  /// a secret book's: Vocabulary is open to anyone with the phone.
+  Future<VocabWord?> _keepWord(int unit, String word, String sentence) async {
+    if (widget.store?.isSecret(_book.id) ?? false) return null;
+    return VocabularyStore.instance.add(
+      rawWord: word,
+      sentence: sentence,
+      bookId: _book.id,
+      bookTitle: _book.metadata.title,
+      at: cursorOf(_l.units[unit]),
+    );
+  }
+
   /// Press and hold on the text: what can be done with that sentence.
   Future<void> _onLongPress(int unit, String word) async {
     if (!mounted || _l.isEmpty) return;
@@ -1685,7 +1699,22 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         await Clipboard.setData(ClipboardData(text: sentence));
         _snack('Copied.');
       case 'lookup':
-        if (!await _svc.lookUp(word) && mounted) _snack('No app on this phone looks words up. A dictionary app can.');
+        // Kept to learn, with where it was met (vocabulary.dart).
+        await _keepWord(unit, word, sentence);
+        if (!await _svc.lookUp(word) && mounted) _snack('No app on this phone looks words up. Kept in Vocabulary.');
+      case 'vocab':
+        final kept = await _keepWord(unit, word, sentence);
+        if (kept != null && mounted) {
+          showSnack(
+            context,
+            '"${kept.word}" is in your Vocabulary.',
+            margin: _snackMargin,
+            actionLabel: 'Undo',
+            onAction: () => unawaited(VocabularyStore.instance.remove(kept.word)),
+          );
+        } else if (mounted && (widget.store?.isSecret(_book.id) ?? false)) {
+          _snack("A secret book's words are not kept, so Vocabulary never shows them.");
+        }
       case 'translate':
         if (!await _svc.translate(sentence) && mounted) _snack('No app on this phone translates. Google Translate can.');
       case 'say':

@@ -10,6 +10,7 @@ import 'book_tint.dart';
 import 'export_audio.dart';
 import 'listen_sheet.dart' show trimSpeed;
 import 'listening_session.dart';
+import 'cloud_voices.dart';
 import 'eleven_labs.dart';
 import 'neural_voices.dart';
 import 'prefs.dart';
@@ -291,6 +292,11 @@ class _SaveSheetState extends State<_SaveSheet> {
     final natural = isNeural(narrator) || isNeural(dialogue) || cast.any(isNeural);
     // ElevenLabs bills each character the first time it is made.
     final eleven = isEleven(narrator) || isEleven(dialogue) || cast.any(isEleven);
+    // A cloud voice (OpenAI, Google, Azure) too, at the dearest price of
+    // those reading.
+    final cloudPrice = [
+      for (final v in [narrator, dialogue, ...cast]) CloudVoices.instance.dollarsPerMillion(v),
+    ].whereType<double>().fold<double>(0, (a, b) => a > b ? a : b);
     final short = _free >= 0 && _free < spaceWanted(bytes);
     final tooLong = length > maxExportLength;
     final faint = Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)).copyWith(height: 1.4);
@@ -372,6 +378,14 @@ class _SaveSheetState extends State<_SaveSheet> {
                 'ElevenLabs charges your account for every character not made before: about '
                 '${_thousands((plan.chars * ElevenLabs.instance.model.creditsPerChar).round())} credits '
                 'for this, at most. Sentences already heard cost nothing again.',
+                color: Skin.cautionOn(context),
+              ),
+            if (cloudPrice > 0)
+              note(
+                Icons.toll_rounded,
+                'Your cloud voice account is charged for every character not made before: at most about '
+                'US\$${(plan.chars * cloudPrice / 1000000).toStringAsFixed(2)} for this. '
+                'Sentences already heard cost nothing again.',
                 color: Skin.cautionOn(context),
               ),
             if (natural)

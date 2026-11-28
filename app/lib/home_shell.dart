@@ -10,7 +10,10 @@ import 'ai/memory/memory_background.dart';
 import 'ai/memory/memory_service.dart';
 import 'ai/memory/series_store.dart';
 import 'app_update.dart';
+import 'cloud_voices.dart';
 import 'eleven_labs.dart';
+import 'vocabulary.dart';
+import 'vocabulary_screen.dart';
 import 'play_update.dart';
 import 'auto_backup.dart';
 import 'auto_download.dart';
@@ -105,6 +108,8 @@ Future<OpenLibrary> _open(String dir) async {
   // ElevenLabs voices on the reader's own key: the key and its voices, read
   // before a book asks for its voice (not in the Play build yet).
   if (!playBuild) unawaited(ElevenLabs.instance.open(Directory(dir)));
+  // Cloud voices (OpenAI, Google, Azure) on the reader's own keys too.
+  if (!playBuild) unawaited(CloudVoices.instance.open(Directory(dir)));
   final sources = await took('sources', SourceStore.open(Directory(internal ?? dir), legacyRoot: Directory(dir)));
   // Sources ask as the phone's own browser does (see Net.userAgent): with
   // the agent kept last run, the web view asked again once the shelf is up.
@@ -152,6 +157,8 @@ Future<OpenLibrary> _open(String dir) async {
       // The reader's AI keys (kept with the catalogue passwords) and their use.
       AiRing.instance.attach(Directory(dir)),
       StatsStore.instance.attach(Directory(dir)),
+      // Words looked up, to learn.
+      VocabularyStore.instance.attach(Directory(dir)),
     ]),
   );
   // AI chat's conversations, and what it keeps about the reader: read in
@@ -754,6 +761,9 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
                   selected: on(_Place.history), onTap: () => _go(_Place.history)),
               _item(context, Icons.bookmarks_outlined, Icons.bookmarks_rounded, 'Saved',
                   selected: current == 'Saved', onTap: () => _push('Saved', (s) => SavedScreen(store: s))),
+              // Words looked up while reading, to learn.
+              _item(context, Icons.spellcheck_rounded, Icons.spellcheck_rounded, 'Vocabulary',
+                  selected: current == 'Vocabulary', onTap: () => _push('Vocabulary', (s) => VocabularyScreen(store: s))),
               _heading(context, 'Find books'),
               _item(context, Icons.travel_explore_rounded, Icons.travel_explore_rounded, 'Browse',
                   selected: on(_Place.browse), onTap: () => _go(_Place.browse)),

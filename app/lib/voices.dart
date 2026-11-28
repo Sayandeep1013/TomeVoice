@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import 'cloud_voices.dart';
 import 'eleven_labs.dart';
 import 'neural_voices.dart';
 import 'speech_service.dart';
@@ -162,6 +163,15 @@ class VoiceCatalog extends ChangeNotifier {
           networkRequired: true,
           installed: true);
     }
+    final cloud = CloudVoices.instance.byVoiceName(name);
+    if (cloud != null) {
+      return VoiceInfo(
+          name: cloud.voiceName,
+          locale: cloud.language.isEmpty ? 'en' : cloud.language,
+          quality: 500,
+          networkRequired: true,
+          installed: true);
+    }
     return null;
   }
 
@@ -204,7 +214,7 @@ class VoiceCatalog extends ChangeNotifier {
   /// Why a [language] book cannot be read aloud here, or null: no voice
   /// (of the phone's engine, or natural) reads its letters.
   String? noVoiceFor(String language, String? voiceName) {
-    if (!loaded || !ownLetters(language) || isNeural(voiceName) || isEleven(voiceName)) return null;
+    if (!loaded || !ownLetters(language) || isNeural(voiceName) || isEleven(voiceName) || isCloud(voiceName)) return null;
     final v = byName(voiceName);
     if (v != null && readsLettersOf(v.language, language)) return null;
     final name = languageName(language);
@@ -340,6 +350,8 @@ class VoiceCatalog extends ChangeNotifier {
     if (natural != null) return naturalName(natural);
     final eleven = ElevenLabs.instance.byVoiceName(v.name);
     if (eleven != null) return '${eleven.name} · ElevenLabs';
+    final cloud = CloudVoices.instance.byVoiceName(v.name);
+    if (cloud != null) return '${cloud.name} · ${cloud.service.label}';
     if (v.variant == 'Default') return 'Default voice';
     if (!RegExp(r'^[A-Z0-9]{2,5}$').hasMatch(v.variant)) return v.variant;
     final same = [
