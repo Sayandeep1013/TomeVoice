@@ -92,7 +92,15 @@ Future<String?> showSentenceActions(
                   SheetAction(
                     icon: Icons.menu_book_outlined,
                     label: 'Look up "$word"',
+                    detail: 'In your dictionary app, and kept in Vocabulary to learn',
                     onTap: () => Navigator.pop(ctx, 'lookup'),
+                  ),
+                if (word.isNotEmpty)
+                  SheetAction(
+                    icon: Icons.spellcheck_rounded,
+                    label: 'Keep "$word" to learn',
+                    detail: 'In Vocabulary, with this sentence, for review',
+                    onTap: () => Navigator.pop(ctx, 'vocab'),
                   ),
                 SheetAction(
                   icon: Icons.translate_rounded,

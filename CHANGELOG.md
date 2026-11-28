@@ -3,6 +3,49 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 2.9.0 (2026-11-28)
+
+Light themes done properly, four light scenes and a topographic map, more voices on your own key, a vocabulary to learn from, goals that tell you something, highlights from Kindle, Kobo, Play Books and Libby, and an icon in your theme's colours.
+
+**Updating** keeps your library, your keys, every book's memory and your journal.
+
+#### Light themes
+- **Light all the way:** by day, the player bar, pills, snack bars, cards, the logo and Now Playing are light in the theme's own tint, no longer black or dark slabs, and cards are never pure white.
+- **Paper is the new default** for new readers, and it now has a night side: deep brown with cream type.
+- Saved quotes are among what every theme keeps easy to read.
+
+#### Five new scenes
+- **Morris garden** (a William Morris wallpaper; block-printed linen, indigo and madder), **Botanical** (a Redouté rose on watercolour paper, gold hairlines), **Ukiyo-e** (Hokusai's Red Fuji on washi, brush-ink borders, vermilion seals), **Marble and gold** (veined white marble and gold leaf): light scenes, each with its own art, panels, buttons, edges, slider knob, frame and quiet motion. The paintings are public domain; the credits are under About → licences.
+- **Topography:** the contour lines of a survey map, by day on warm paper and by night on charcoal, following Light or dark. Flat controls with pencil-line edges, a compass, a scale bar for dividers and a drifting "you are here".
+
+#### Icon follows the theme
+- The app's icon on the launcher takes your theme's colours (a day and a night icon for themes that have both), changing as you leave the app. Settings → Appearance → **Icon follows the theme**; off gives the classic icon. All the icons together add a few KB.
+- With your launcher's themed (one-colour) icons on, the home screen keeps those; the app drawer shows the theme's.
+
+#### Voices on your own key (GitHub build)
+- **Cloud voices:** OpenAI, Google Cloud or Microsoft Azure, on your own key and paid by your account with them: about $4 to $30 for a million characters (a long novel), a tenth of ElevenLabs' price or less, with free characters every month at Google and Azure. Google's voices light each word exactly; OpenAI's newest can be told how to narrate. Voices → **Cloud voices**.
+- **ElevenLabs:** the voices of your own ElevenLabs account, paid from its credits; each sentence is sent with the ones either side so the voice carries on in one tone, a passing failure is tried again, and the voice comes back after a dropped connection instead of being lost for the book.
+- Each sentence is made once and kept on the phone: hearing it again, at any speed, costs nothing more. Saving a book as audio says what it may cost first. If the service cannot speak (no credit, no internet), the phone's own voice reads on.
+
+#### Vocabulary
+- **Every word you look up is kept**, with the sentence you met it in and its place in the book; or hold a word and pick **Keep to learn**. In the drawer: **Vocabulary**.
+- Write what it means in your own words, hear it in your voice, tap its sentence to go back there.
+- **Review** shows the word, then its meaning and sentence: one you knew comes back in 1, 3, 7, 14 and then 30 days; one you didn't, tomorrow. Words from secret books are never kept.
+
+#### Reading goals
+- **Finish by:** give a book a day to finish it by, on its page, and it says how many minutes a day that takes at your own listening pace, how much of today's you have done, and how many days are left. History → Stats lists them under **Finishing**.
+- **Today's goal met** is said in the reader the moment it happens, with your streak.
+
+#### Import from another app
+- **Add books → From Kindle, Play Books, Kobo…:** what each shop and app lets out and how, step by step (Kindle, Google Play Books, Kobo, AO3, Calibre, NovelDokusha). A shop's locked .acsm licence is explained, never unlocked.
+- **Highlights and notes** go into their books as quotes, at the sentence they were made at: Kindle's My Clippings.txt, KOReader, Kobo (KoboReader.sqlite), Google Play Books' notes Doc (.docx or Markdown) and Libby's reading journey (.json).
+
+#### Play build
+- **Updates from Google Play are offered in the app:** downloaded in the background while you read, installed with a restart. Settings has the switch and a Check now.
+
+#### Smoother
+- Topography and Marble scroll as smoothly as Paper: their textures are made once and kept, not again for every new panel.
+
 ## 2.8.0 (2026-11-26)
 
 Three new scenes that dress the whole app, not only its backdrop, and natural voices that change speed at once.

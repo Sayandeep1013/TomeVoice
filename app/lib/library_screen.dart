@@ -11,6 +11,7 @@ import 'book_screen.dart';
 import 'book_tint.dart';
 import 'categories_screen.dart';
 import 'duplicates.dart';
+import 'import_screen.dart';
 import 'library_store.dart';
 import 'listening_session.dart';
 import 'novel_link.dart';
@@ -363,6 +364,12 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
               onTap: () => Navigator.pop(ctx, 'files'),
             ),
             SheetAction(
+              icon: Icons.move_to_inbox_outlined,
+              label: 'From Kindle, Play Books, Kobo…',
+              detail: 'What other apps and shops let out, and how; highlights too',
+              onTap: () => Navigator.pop(ctx, 'import'),
+            ),
+            SheetAction(
               icon: Icons.content_paste_rounded,
               label: 'Paste a link or text',
               detail: 'A web article, or any words you copied',
@@ -379,6 +386,10 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
         await _pick();
       case 'paste':
         await _paste();
+      case 'import':
+        await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => ImportScreen(store: _store, onBooks: _pick),
+        ));
     }
   }
 
@@ -1708,7 +1719,7 @@ class _ContinueDockState extends State<ContinueDock> {
           BoxDecoration(
             color: Skin.darkOn(context).withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(Radii.card),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            border: Border.all(color: Skin.isDark(context) ? Colors.white.withValues(alpha: 0.08) : Skin.capsuleEdge),
           ),
           lit: true,
         ),
@@ -1792,7 +1803,7 @@ class _ContinueDockState extends State<ContinueDock> {
                   ),
                   const SizedBox(height: 6),
                   Progress(e.progress,
-                      height: 2.5, track: onDark.withValues(alpha: 0.14), color: Skin.accentSoftOf(context)),
+                      height: 2.5, track: onDark.withValues(alpha: 0.14), color: Skin.accentInkOf(context)),
                 ],
               ),
             ),

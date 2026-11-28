@@ -629,7 +629,7 @@ void main() {
       }
     });
 
-    testWidgets("Now Playing sets the book in the reader's text size, in its own face, white", (tester) async {
+    testWidgets("Now Playing sets the book in the reader's text size, in its own face, in the light theme's ink", (tester) async {
       ListeningPrefs.memory
         ..textSize = 24
         ..bookFont = BookFont.literata
@@ -640,8 +640,11 @@ void main() {
       await tester.pumpAndSettle();
       final now = find.byType(NowPlayingScreen);
       final text = tester.widget<Text>(find.descendant(of: now, matching: find.textContaining('quick brown fox')).first);
+      // A light theme draws Now Playing light: the theme's ink, dimmed
+      // round the sentence being read (white, over the dark cover, by night).
+      final ink = Skin.inkOn(tester.element(now));
       expect(text.style,
-          TextStyle(fontFamily: 'Newsreader', fontSize: 24, height: 1.5, color: Colors.white.withValues(alpha: 0.4)));
+          TextStyle(fontFamily: 'Newsreader', fontSize: 24, height: 1.5, color: ink.withValues(alpha: 0.45)));
       await finish(tester);
     });
   });

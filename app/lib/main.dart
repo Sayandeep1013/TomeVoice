@@ -10,6 +10,7 @@ import 'brand.dart';
 import 'error_log.dart';
 import 'frame_print.dart';
 import 'home_shell.dart';
+import 'launcher_icon.dart';
 import 'listening_session.dart';
 import 'own_colours.dart';
 import 'prefs.dart';
@@ -155,11 +156,11 @@ class SpikeApp extends StatelessWidget {
           // Every colour in Skin reads the palette, so set it before the
           // tree below is built.
           Skin.palette = palette;
-          return _app(palette, palette.modeFor(prefs?.themeMode ?? ThemeMode.system));
+          return _app(palette, palette.modeFor(prefs?.themeMode ?? ThemeMode.system), base);
         },
       );
 
-  Widget _app(Palette palette, ThemeMode mode) => MaterialApp(
+  Widget _app(Palette palette, ThemeMode mode, Palette base) => MaterialApp(
           title: 'TomeVoice',
           navigatorKey: SecretShelf.navigator,
           // Leaving a book writes its place at once (see PlaceSettler).
@@ -178,7 +179,7 @@ class SpikeApp extends StatelessWidget {
           // Animations off in Settings: every screen told so, as by the
           // phone's own "remove animations" (Motion.reduced, the scenes' life,
           // Flutter's own transitions all follow it).
-          builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+          builder: (context, child) => _followIcon(context, base, AnnotatedRegion<SystemUiOverlayStyle>(
             value: Skin.isDark(context)
                 ? const SystemUiOverlayStyle(
                     statusBarColor: Colors.transparent,
@@ -207,9 +208,17 @@ class SpikeApp extends StatelessWidget {
               // Every finger, to the tap log (which notes nothing while off).
               child: TapRecorder(child: child!),
             ),
-          ),
+          )),
           home: const _ModeGate(),
         );
+}
+
+/// The launcher icon follows the theme as shown (light or dark), told to
+/// Android as it changes; the switch in Settings turns it off.
+Widget _followIcon(BuildContext context, Palette base, Widget child) {
+  final prefs = ListeningPrefs.loaded;
+  if (prefs != null) LauncherIcon.follow(base, Theme.of(context).brightness, follow: prefs.iconFollowsTheme);
+  return child;
 }
 
 class _ModeGate extends StatefulWidget {

@@ -18,6 +18,15 @@ import 'theme.dart';
 import 'ui.dart';
 import 'voice_glow.dart';
 
+/// Whether Now Playing is drawn light: in a light theme it is (the cover,
+/// or a light scene, washed pale behind dark type). Dark, it stays dark over
+/// the cover or the scene.
+bool _light(BuildContext c) => !Skin.isDark(c);
+
+/// The type and controls on Now Playing: the theme's ink when it is light,
+/// white over the dark cover otherwise.
+Color _fg(BuildContext c) => _light(c) ? Skin.inkOn(c) : Colors.white;
+
 /// The book filling the screen while it is read: the cover over a blur of
 /// itself in the book's colour, and the page around the voice, the sentence
 /// being read lit and the word under the voice in the accent.
@@ -86,7 +95,7 @@ class NowPlayingScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final accent = Skin.accentOf(context);
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: _light(context) ? Skin.groundFoot(context) : Colors.black,
       body: GestureDetector(
         onVerticalDragEnd: (d) {
           if ((d.primaryVelocity ?? 0) > 300) Navigator.of(context).maybePop();
@@ -103,7 +112,7 @@ class NowPlayingScreen extends StatelessWidget {
               // About a third of the screen: on its side a fixed height
               // flooded most of it.
               height: (MediaQuery.sizeOf(context).height * 0.34).clamp(120, 300).toDouble(),
-              child: VoiceGlow(level: player.level, state: player.state, dark: true),
+              child: VoiceGlow(level: player.level, state: player.state, dark: !_light(context)),
             ),
             SafeArea(
               child: OrientationBuilder(
@@ -122,7 +131,7 @@ class NowPlayingScreen extends StatelessWidget {
                             child: IconButton(
                               tooltip: 'Close',
                               onPressed: () => Navigator.of(context).maybePop(),
-                              icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 32, color: Colors.white),
+                              icon: Icon(Icons.keyboard_arrow_down_rounded, size: 32, color: _fg(context)),
                             ),
                           ),
                         ],
@@ -149,13 +158,13 @@ class NowPlayingScreen extends StatelessWidget {
             IconButton(
               tooltip: 'Close',
               onPressed: () => Navigator.of(context).maybePop(),
-              icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 32, color: Colors.white),
+              icon: Icon(Icons.keyboard_arrow_down_rounded, size: 32, color: _fg(context)),
             ),
             Expanded(
               child: Text(
                 'NOW READING',
                 textAlign: TextAlign.center,
-                style: Skin.meta(context, color: Colors.white.withValues(alpha: 0.7)),
+                style: Skin.meta(context, color: _light(context) ? Skin.inkSoftOn(context) : Colors.white.withValues(alpha: 0.7)),
               ),
             ),
             const SizedBox(width: 48),
@@ -180,7 +189,7 @@ class NowPlayingScreen extends StatelessWidget {
           child: DecoratedBox(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(Radii.card),
-              boxShadow: const [BoxShadow(color: Color(0x99000000), blurRadius: 32, offset: Offset(0, 16))],
+              boxShadow: [BoxShadow(color: Color(_light(context) ? 0x40000000 : 0x99000000), blurRadius: 32, offset: const Offset(0, 16))],
             ),
             // In a scene theme, hung in its frame.
             child: CustomPaint(
@@ -235,7 +244,7 @@ class NowPlayingScreen extends StatelessWidget {
                   title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Skin.title(context, size: 24, color: Colors.white),
+                  style: Skin.title(context, size: 24, color: _fg(context)),
                 ),
                 const SizedBox(height: 2),
                 // A new chapter's name rises into place.
@@ -251,7 +260,7 @@ class NowPlayingScreen extends StatelessWidget {
                     key: ValueKey(chapter),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Skin.meta(context, color: Colors.white.withValues(alpha: 0.62)),
+                    style: Skin.meta(context, color: _light(context) ? Skin.inkSoftOn(context) : Colors.white.withValues(alpha: 0.62)),
                   ),
                 ),
                 const SizedBox(height: Gap.m),
@@ -275,7 +284,7 @@ class NowPlayingScreen extends StatelessWidget {
                         if (sleep != null) sleep,
                       ].join('  ·  '),
                       textAlign: TextAlign.end,
-                      style: Skin.meta(context, size: 10.5, color: Colors.white.withValues(alpha: 0.55)),
+                      style: Skin.meta(context, size: 10.5, color: _light(context) ? Skin.inkFaintOn(context) : Colors.white.withValues(alpha: 0.55)),
                     ),
                   ),
                 ),
@@ -324,20 +333,22 @@ class NowPlayingScreen extends StatelessWidget {
         )),
       );
 
-  Widget _icon(IconData icon, String tip, VoidCallback? onTap) => IconButton(
-        tooltip: tip,
-        onPressed: onTap,
-        iconSize: 30,
-        color: Colors.white,
-        disabledColor: Colors.white.withValues(alpha: 0.25),
-        icon: Builder(builder: (context) => Skin.icon(context, icon)),
+  Widget _icon(IconData icon, String tip, VoidCallback? onTap) => Builder(
+        builder: (context) => IconButton(
+          tooltip: tip,
+          onPressed: onTap,
+          iconSize: 30,
+          color: _fg(context),
+          disabledColor: _fg(context).withValues(alpha: 0.25),
+          icon: Skin.icon(context, icon),
+        ),
       );
 
-  Widget _chipText(String label) => Text(
+  Widget _chipText(BuildContext context, String label) => Text(
         label,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: Skin.ui(size: 13, weight: FontWeight.w600, color: Colors.white),
+        style: Skin.ui(size: 13, weight: FontWeight.w600, color: _fg(context)),
       );
 
   /// A chip's whole width for [label]: its padding, icon and words.
@@ -359,8 +370,8 @@ class NowPlayingScreen extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 3),
           child: Material(
-            color: Colors.white.withValues(alpha: 0.10),
-            shape: const StadiumBorder(),
+            color: _light(context) ? Skin.capsuleOn(context) : Colors.white.withValues(alpha: 0.10),
+            shape: _light(context) ? const StadiumBorder(side: BorderSide(color: Skin.capsuleEdge)) : const StadiumBorder(),
             child: InkWell(
               customBorder: const StadiumBorder(),
               onTap: onTap,
@@ -369,9 +380,9 @@ class NowPlayingScreen extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(icon, size: 15, color: Skin.accentSoftOf(context)),
+                    Icon(icon, size: 15, color: Skin.accentInkOf(context)),
                     const SizedBox(width: 6),
-                    if (fixed) _chipText(label) else Flexible(child: _chipText(label)),
+                    if (fixed) _chipText(context, label) else Flexible(child: _chipText(context, label)),
                   ],
                 ),
               ),
@@ -464,7 +475,23 @@ class _Backdrop extends StatelessWidget {
   final Color accent;
 
   @override
-  Widget build(BuildContext context) => Skin.sceneOf(context) != null
+  Widget build(BuildContext context) => Skin.sceneOf(context)?.light ?? false
+      // A light scene: its own place behind, a little paler.
+      ? Ground(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Skin.paletteOf(context).daySheet.withValues(alpha: 0.3),
+                  Skin.paletteOf(context).daySheet.withValues(alpha: 0.6),
+                ],
+              ),
+            ),
+          ),
+        )
+      : Skin.sceneOf(context) != null
       // A scene theme: its own place behind, a little darker.
       ? const Ground(
           child: DecoratedBox(
@@ -476,6 +503,30 @@ class _Backdrop extends StatelessWidget {
               ),
             ),
           ),
+        )
+      : _light(context)
+      // A light colour theme: the cover blurred to colour under a pale wash of the
+      // theme's own sheet, so dark type reads on it, as on its pages.
+      ? Stack(
+          fit: StackFit.expand,
+          children: [
+            DecoratedBox(decoration: Skin.groundDecoration(context)),
+            if (cover != null) _BlurredCover(path: cover!),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Skin.paletteOf(context).daySheet.withValues(alpha: 0.55),
+                    Color.lerp(Skin.paletteOf(context).daySheet, accent, 0.10)!.withValues(alpha: 0.82),
+                    Skin.paletteOf(context).daySheet.withValues(alpha: 0.94),
+                  ],
+                  stops: const [0, 0.55, 1],
+                ),
+              ),
+            ),
+          ],
         )
       : Stack(
         fit: StackFit.expand,
@@ -710,10 +761,10 @@ class _PassageState extends State<_Passage> {
     final we = on ? word.end.clamp(ws, text.length) : 0;
     return [
       TextSpan(
-        style: const TextStyle(color: Colors.white),
+        style: TextStyle(color: _fg(context)),
         children: [
           TextSpan(text: text.substring(0, ws)),
-          if (on) TextSpan(text: text.substring(ws, we), style: TextStyle(color: Skin.accentSoftOf(context))),
+          if (on) TextSpan(text: text.substring(ws, we), style: TextStyle(color: Skin.accentInkOf(context))),
           TextSpan(text: text.substring(we)),
         ],
       ),
@@ -723,7 +774,7 @@ class _PassageState extends State<_Passage> {
   Widget _para(BuildContext context, int a, int b) {
     final key = _keys.putIfAbsent(a, GlobalKey.new);
     final heading = _l.units[a].role == BlockRole.heading;
-    final dim = Colors.white.withValues(alpha: 0.4);
+    final dim = _fg(context).withValues(alpha: _light(context) ? 0.45 : 0.4);
     // The reader's text size (19 unless it was changed), as on the page.
     final prefs = ListeningPrefs.loaded ?? ListeningPrefs.memory;
     final style = PageStyle.passage(context, prefs, heading: heading, color: dim);

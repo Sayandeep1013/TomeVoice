@@ -276,7 +276,7 @@ Not there yet: see [Not built yet](#not-built-yet).
 - **Never an empty shelf.** A new install starts with *Pride and Prejudice* (public
   domain, with its 1894 peacock cover) and two popular web novels, *Shadow Slave* and
   *Lord of the Mysteries*, ready to play. Remove them like any other book.
-- **Colour themes:** Forest, Lavender, Ocean, Black for OLED screens and Paper; eight
+- **Colour themes:** Paper (the default, light or dark), Forest, Lavender, Ocean and Black for OLED screens; eight
   designer themes (Library, Matcha, Rosewater, Slate, Dune, Midnight Ink, Plum and
   Maple); your own colours (kept readable), or your wallpaper's on Android 12 and later. Text meets the
   WCAG AA contrast standard in every one. A short guide shows the way on a new install.
@@ -284,7 +284,20 @@ Not there yet: see [Not built yet](#not-built-yet).
   Enchanted forest, Silver witch, Space · solar, Dungeon, Sketch · chalk (drawn by
   hand: chalk on a grainy slate, the player's buttons painted in chalk), and Black rose,
   Silver dragon and Old tome, whose buttons, menus, sheets and slider are made of their own
-  glass, slate or leather.
+  glass, slate or leather. By day: Morris garden, Botanical, Ukiyo-e and Marble and gold;
+  and Topography, a survey map's contour lines on paper by day and charcoal by night.
+- **Icon follows the theme:** the launcher icon takes your theme's colours (off in
+  Settings for the classic one).
+- **Voices on your own key (this GitHub build only):** ElevenLabs, or OpenAI, Google Cloud
+  and Microsoft Azure for a tenth of the price or less, straight from your phone to the
+  service. Each sentence is made once and kept, so hearing it again costs nothing.
+- **Vocabulary:** every word you look up is kept with the sentence you met it in, to write
+  its meaning and review it, further off the better you know it.
+- **Reading goals:** minutes a day for your streak, and a day to finish a book by, told in
+  minutes a day at your own listening pace.
+- **From Kindle, Play Books, Kobo and others:** what each lets out and how, and your
+  highlights and notes from Kindle, KOReader, Kobo, Play Books and Libby put into their
+  books as quotes.
 - **Gives you the voice controls readers don't:** speed (for every book, or this one
   only), pitch, the gap between words, and pauses at commas, sentences and paragraphs.
 

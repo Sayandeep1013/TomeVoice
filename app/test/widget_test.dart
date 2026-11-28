@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart' show PipelineSettings;
 import 'package:tomevoice_document/tomevoice_document.dart';
+import 'package:tomevoice_spike/vocabulary.dart';
 import 'package:tomevoice_spike/app_update.dart';
 import 'package:tomevoice_spike/book_card.dart';
 import 'package:tomevoice_spike/book_screen.dart';
@@ -57,6 +58,7 @@ void main() {
   setUp(() {
     // Bookmarks and quotes live in one store for the app: none carried over.
     MarkStore.instance.reset();
+    VocabularyStore.instance.reset();
     _tmp = Directory.systemTemp.createTempSync('tomevoice_test');
     _calls.clear();
     ListeningPrefs.reset();
@@ -367,10 +369,12 @@ void main() {
       await tester.fling(find.byTooltip('Speed'), const Offset(0, -300), 1500);
       await tester.pumpAndSettle();
       expect(find.text('NOW READING'), findsOneWidget);
-      // The page around the voice, the sentence to be read lit in it.
+      // The page around the voice, the sentence to be read lit in it: in
+      // the light theme's full ink, the rest dimmed.
+      final ink = Skin.inkOn(tester.element(find.text('NOW READING')));
       bool lit(InlineSpan? s) =>
           s is TextSpan &&
-          ((s.style?.color == Colors.white && s.toPlainText().contains('quick brown fox')) ||
+          ((s.style?.color == ink && s.toPlainText().contains('quick brown fox')) ||
               (s.children ?? const []).any(lit));
 
       expect(tester.widgetList<Text>(find.textContaining('quick brown fox')).any((t) => lit(t.textSpan)), isTrue);
@@ -1928,12 +1932,24 @@ void main() {
     testWidgets('tapping a book shows its chapters, voice and Play', (tester) async {
       await pumpShelf(tester);
       await tester.tap(find.text('alpha'));
-      await settleIo(tester, until: () => find.text('Chapter 2').evaluate().isNotEmpty);
+      // The book read in: Read can be pressed (the chapters come lower down).
+      bool loaded() {
+        final read = find.ancestor(of: find.text('Read'), matching: find.byWidgetPredicate((w) => w is ButtonStyleButton));
+        return read.evaluate().isNotEmpty && (tester.widget(read.first) as ButtonStyleButton).onPressed != null;
+      }
+
+      await settleIo(tester, until: loaded);
 
       expect(find.byType(BookScreen), findsOneWidget);
       expect(find.text('Listen'), findsOneWidget);
       expect(find.text('Read'), findsOneWidget);
       expect(find.text('VOICE FOR THIS BOOK'), findsOneWidget);
+      // The chapters are lower down the page, built as they are scrolled to
+      // (and once the book has been read in).
+      for (var i = 0; i < 20 && find.text('Chapter 2').evaluate().isEmpty; i++) {
+        await tester.drag(find.byType(BookScreen), const Offset(0, -150));
+        await settleIo(tester, until: () => find.text('Chapter 2').evaluate().isNotEmpty);
+      }
       expect(find.text('Chapters'), findsOneWidget);
       expect(find.text('Chapter 1'), findsOneWidget);
 
@@ -2188,7 +2204,7 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets('a colour theme can be picked; Black and Paper fix the brightness', (tester) async {
+    testWidgets('a colour theme can be picked; Black fixes the brightness, Paper follows light and dark', (tester) async {
       phone(tester);
       await tester.pumpWidget(MaterialApp(home: SettingsScreen(store: LibraryStore(_tmp))));
       await settleIo(tester);
@@ -2200,7 +2216,9 @@ void main() {
       expect(ListeningPrefs.memory.paletteId, 'lavender');
       expect(Palette.lavender.modeFor(ThemeMode.light), ThemeMode.light);
       expect(Palette.black.modeFor(ThemeMode.light), ThemeMode.dark);
-      expect(Palette.paper.modeFor(ThemeMode.dark), ThemeMode.light);
+      // Paper, the theme a reader starts in, has a night of its own.
+      expect(Palette.paper.modeFor(ThemeMode.dark), ThemeMode.dark);
+      expect(Palette.paper.modeFor(ThemeMode.light), ThemeMode.light);
 
       await tester.tap(find.text('Black'));
       await tester.pumpAndSettle();
@@ -2276,6 +2294,8 @@ class _NaturalFails extends SpeechService {
     double rate = 1.0,
     double pitch = 1.0,
     bool urgent = true,
+    String? previousText,
+    String? nextText,
   }) async {
     asked.add(voiceName);
     if (isNeural(voiceName)) throw Exception('the model would not load');

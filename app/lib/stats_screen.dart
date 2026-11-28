@@ -56,6 +56,56 @@ class _StatsScreenState extends State<StatsScreen> {
     if (mounted) setState(() {});
   }
 
+  /// Books with a day to finish by (set on each book's page): what today
+  /// asks of each, and what has been done of it.
+  List<Widget> _finishing(BuildContext context) {
+    final wpm = _stats.wordsPerMinute();
+    final rows = <Widget>[];
+    for (final e in _stats.finishBy.entries) {
+      final b = _books[e.key];
+      if (b == null || b.finished || b.wordCount <= 0 || _hidden.contains(b.id)) continue;
+      final plan = finishPlan(
+        wordsLeft: (b.wordCount * (1 - b.progress)).round(),
+        by: dayOf(e.value),
+        wpm: wpm ?? 165 * speedOf(b.id),
+      );
+      final today = _stats.minutesToday(b.id);
+      final done = plan != null && today >= plan.minutesPerDay;
+      rows.add(Padding(
+        padding: const EdgeInsets.only(bottom: Gap.s),
+        child: Row(
+          children: [
+            Icon(done ? Icons.flag_rounded : Icons.flag_outlined, size: 18, color: Skin.accentInkOf(context)),
+            const SizedBox(width: Gap.m),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(b.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: Skin.label(context, size: 14.5, color: Skin.inkOn(context))),
+                  Text(
+                    plan == null
+                        ? 'Its day to finish by has passed'
+                        : done
+                            ? "Today's ${plan.minutesPerDay} min done · ${plan.daysLeft} days left"
+                            : '$today of ${plan.minutesPerDay} min today · ${plan.daysLeft} days left',
+                    style: Skin.meta(context, size: 10.5),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ));
+    }
+    if (rows.isEmpty) return const [];
+    return [
+      const SizedBox(height: Gap.l),
+      const SectionTitle('Finishing'),
+      const SizedBox(height: Gap.m),
+      _card(context, Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: rows)),
+    ];
+  }
+
   /// A new daily goal: the streak, the ring and the days count by it at
   /// once, and so do the home-screen widgets, drawn again now.
   Future<void> _setGoal(int minutes) async {
@@ -118,6 +168,7 @@ class _StatsScreenState extends State<StatsScreen> {
                         ],
                       ),
                     ),
+                    ..._finishing(context),
                     const SizedBox(height: Gap.l),
                     const SectionTitle('This week'),
                     const SizedBox(height: Gap.m),

@@ -20,7 +20,7 @@ import sys
 import urllib.parse
 import urllib.request
 
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageChops, ImageEnhance, ImageFilter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, '..', 'app', 'assets', 'scenes')
@@ -84,6 +84,41 @@ SCENES = {
         # by two of its plain bands mirrored, not cut at the sides.
         'grow': [(0.24, 0.42), (0.58, 0.76)],
         'across': 0.5, 'brightness': 0.8, 'contrast': 1.08, 'colour': 0.9, 'tint': (1.0, 0.97, 0.92),
+    },
+    # The light scenes: graded paler, not darker, and washed toward their
+    # paper ('wash', how much of it), so dark type reads over them.
+    'morris': {
+        'file': 'Willow Bough MET DP306734.jpg',
+        'credit': 'William Morris (Morris & Co.), "Willow Bough" wallpaper (1887). The Metropolitan Museum '
+                  'of Art, Open Access (CC0). Cropped and colour-graded.',
+        'licences': {'CC0', 'Public domain'},
+        # The sheet's printed margin and the maker's mark at the right cut off.
+        'trim': 0.035, 'across': 0.35,
+        'brightness': 1.04, 'contrast': 0.86, 'colour': 0.82, 'tint': (1.0, 1.0, 0.98),
+        'wash': (246, 241, 228), 'washed': 0.34,
+    },
+    'botanical': {
+        'file': 'Redoute - Rosa centifolia foliacea.jpg',
+        'credit': 'Pierre-Joseph Redouté, "Rosa centifolia foliacea", from Les Roses (1817-1824). Public '
+                  'domain. Placed on paper and colour-graded.',
+        'licences': {'Public domain'},
+        # The plate laid on warm paper at the top of the screen (its white
+        # taken for the paper), its engraved caption left off.
+        # A second sprig, mirrored, rising from the lower left: the two frame
+        # the screen corner to corner.
+        'onto': {'paper': (248, 241, 230), 'crop': (0.0, 0.0, 1.0, 0.88), 'width': 1.12, 'top': -0.03, 'left': 0.16,
+                 'again': {'width': 0.95, 'top': 0.6, 'left': -0.3, 'mirror': True}},
+        'brightness': 1.0, 'contrast': 0.92, 'colour': 0.86, 'tint': (1.0, 0.99, 0.97),
+        'wash': (248, 241, 230), 'washed': 0.2,
+    },
+    'ukiyoe': {
+        'file': 'Katsushika Hokusai - Fine Wind, Clear Morning (Gaifū kaisei) - Google Art Project.jpg',
+        'credit': 'Katsushika Hokusai, "Fine Wind, Clear Morning" (Red Fuji), from Thirty-six Views of Mount '
+                  'Fuji (c. 1830-1832). Public domain. Cropped and colour-graded.',
+        'licences': {'Public domain'},
+        'trim': 0.01, 'across': 0.74,
+        'brightness': 1.08, 'contrast': 0.84, 'colour': 0.8, 'tint': (1.0, 0.98, 0.94),
+        'wash': (244, 238, 224), 'washed': 0.36,
     },
 }
 
@@ -170,6 +205,32 @@ def crop_tall(img, across):
     return img.resize((W, H), Image.LANCZOS)
 
 
+def onto_paper(img, spec):
+    """[img] cropped to spec['onto']['crop'] and laid on a sheet of paper
+    W x H at its 'width' (of W), 'left' and 'top' (of W and H): its white
+    taken for the paper (multiplied onto it)."""
+    o = spec['onto']
+    w, h = img.size
+    l, t, r, b = o['crop']
+    img = img.crop((round(w * l), round(h * t), round(w * r), round(h * b)))
+    pw = round(W * o['width'])
+    img = img.resize((pw, round(img.height * pw / img.width)), Image.LANCZOS)
+    paper = Image.new('RGB', (W, H), o['paper'])
+    layer = Image.new('RGB', (W, H), (255, 255, 255))
+    layer.paste(img, (round(W * o['left']) - (pw - W) // 2, round(H * o['top'])))
+    out = ImageChops.multiply(paper, layer)
+    again = o.get('again')
+    if again:
+        aw = round(W * again['width'])
+        second = img.resize((aw, round(img.height * aw / img.width)), Image.LANCZOS)
+        if again.get('mirror'):
+            second = second.transpose(Image.FLIP_LEFT_RIGHT)
+        layer = Image.new('RGB', (W, H), (255, 255, 255))
+        layer.paste(second, (round(W * again['left']), round(H * again['top'])))
+        out = ImageChops.multiply(out, layer)
+    return out
+
+
 def grade(img, spec):
     img = ImageEnhance.Color(img).enhance(spec['colour'])
     img = ImageEnhance.Contrast(img).enhance(spec['contrast'])
@@ -179,7 +240,10 @@ def grade(img, spec):
     img = Image.merge('RGB', (r.point(lambda v: v * tr), g.point(lambda v: v * tg), b.point(lambda v: v * tb)))
     # The finest canvas cracks and the scan's noise, softened: at a phone's
     # size they read as dirt, not paint.
-    return img.filter(ImageFilter.SMOOTH)
+    img = img.filter(ImageFilter.SMOOTH)
+    if 'wash' in spec:
+        img = Image.blend(img, Image.new('RGB', img.size, spec['wash']), spec['washed'])
+    return img
 
 
 def main(names):
@@ -193,7 +257,12 @@ def main(names):
         if t:
             w, h = src.size
             src = src.crop((round(w * t), round(h * t), round(w * (1 - t)), round(h * (1 - t))))
-        tall = grow_tall(src, spec['grow']) if 'grow' in spec else crop_tall(src, spec['across'])
+        if 'onto' in spec:
+            tall = onto_paper(src, spec)
+        elif 'grow' in spec:
+            tall = grow_tall(src, spec['grow'])
+        else:
+            tall = crop_tall(src, spec['across'])
         img = grade(tall, spec)
         path = os.path.join(OUT, f'{name}.webp')
         img.save(path, 'WEBP', quality=80, method=6)

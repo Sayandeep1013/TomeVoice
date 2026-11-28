@@ -17,7 +17,11 @@ set -u
 apk=${1:?usage: emulator-tests.sh <apk> <results-dir>}
 out=${2:?usage: emulator-tests.sh <apk> <results-dir>}
 pkg=app.tomevoice
-activity=tomevoice_spike.MainActivity
+# MainActivity, as Android names its record: started from the launcher it is
+# one of its icon aliases (IconClassic, Icon_<theme>; prepare_android.py), so
+# this is a pattern; [start] is the class itself, for am start.
+start=tomevoice_spike.MainActivity
+activity='tomevoice_spike[.](MainActivity|IconClassic|Icon_[a-z_]+)'
 flows=$(cd "$(dirname "$0")/../flows" && pwd)
 summary=${GITHUB_STEP_SUMMARY:-$out/summary.md}
 mkdir -p "$out/maestro"
@@ -85,7 +89,7 @@ check() {
 record_state() {
   awk -v act="$activity" '
     /[*] Task[{]/ { inrec = 0 }
-    /Hist[[:space:]]+#[0-9]+:/ { inrec = index($0, act) > 0; next }
+    /Hist[[:space:]]+#[0-9]+:/ { inrec = match($0, act) > 0; next }
     inrec && match($0, /(^|[[:space:]])state=[A-Z_]+/) {
       s = substr($0, RSTART, RLENGTH); sub(/.*state=/, "", s)
       f = "unknown"
@@ -314,7 +318,7 @@ swipe_test() {
 # foreground and the session stops playing or pausing.
 paused_swipe_test() {
   local id=$1 name=$2 after service
-  dev am start -n "$pkg/.$activity" > "$out/$id-start.txt"
+  dev am start -n "$pkg/.$start" > "$out/$id-start.txt"
   sleep 6
   shot "$id-rejoined"
   adb shell input keyevent KEYCODE_MEDIA_PAUSE

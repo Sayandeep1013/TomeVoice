@@ -49,6 +49,9 @@ class MainActivity : FlutterActivity() {
     /** Speaking into the journal (Dictation.kt): this activity's, as the microphone is asked of it. */
     private var dictation: Dictation? = null
 
+    /** Play's in-app updates in the Play build; a stand-in in the GitHub one. */
+    private var playUpdates: PlayUpdates? = null
+
     /** This activity came to an engine already running Dart (see onCreate). */
     private var rejoined = false
 
@@ -195,6 +198,8 @@ class MainActivity : FlutterActivity() {
         channel = ch
         dictation?.close()
         dictation = Dictation(this, flutterEngine)
+        playUpdates?.close()
+        playUpdates = PlayUpdates(this, flutterEngine)
         ch.setMethodCallHandler { call, result ->
             // Asking to show the notification is the activity's part of it.
             if (call.method == "session" && call.argument<Boolean>("active") == true) askToNotify()
@@ -637,6 +642,11 @@ class MainActivity : FlutterActivity() {
                 // The wallpaper's colours, for a theme that follows them
                 // (Settings > Appearance). Null before Android 12.
                 "systemColours" -> result.success(systemColours())
+                "setLauncherIcon" -> {
+                    LauncherIcon.want(call.argument<String>("key"))
+                    result.success(null)
+                }
+                "launcherIcon" -> result.success(LauncherIcon.current(this))
                 "pickFolder" -> {
                     if (folderResult != null) {
                         result.error("BUSY", "A folder is already being chosen", null)
@@ -1439,10 +1449,20 @@ class MainActivity : FlutterActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
+    // The icon the theme wants goes on as the reader leaves (LauncherIcon.kt):
+    // Home or Recents, not a picker or a share sheet of the app's own.
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        LauncherIcon.apply(applicationContext)
+    }
+
     override fun onDestroy() {
+        if (isFinishing) LauncherIcon.apply(applicationContext)
         stopSample()
         dictation?.close()
         dictation = null
+        playUpdates?.close()
+        playUpdates = null
         // The reading, the voice, the player and a save as audio are the
         // engine's and carry on (ReadingCore): leaving the app, by a swipe
         // from Recents too, does not stop a book being read or saved, nor

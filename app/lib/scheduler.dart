@@ -12,6 +12,8 @@ import 'package:tomevoice_audio/tomevoice_audio.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'dialogue.dart';
+import 'cloud_voices.dart';
+import 'eleven_labs.dart';
 import 'neural_voices.dart';
 import 'reading_rules.dart';
 import 'speech_service.dart';
@@ -978,21 +980,39 @@ class PlaybackScheduler {
   /// character's to the dialogue voice), with a line on screen saying why.
   /// False when there is nothing to fall back to.
   bool _fallBack(String? narrator, String? dialogue, Object e, {bool character = false}) {
+    // An ElevenLabs voice too: out of credits, offline, a key gone.
+    bool gives(String? v) => (isNeural(v) || isEleven(v) || isCloud(v)) && !_failed.contains(v);
     final natural = [
-      if (isNeural(narrator) && !_failed.contains(narrator)) narrator!,
-      if (isNeural(dialogue) && !_failed.contains(dialogue)) dialogue!,
+      if (gives(narrator)) narrator!,
+      if (gives(dialogue)) dialogue!,
     ];
     if (natural.isEmpty) return false;
     if (natural.contains(narrator) && fallbackVoiceOf?.call() == null) return false;
     _failed.addAll(natural);
+    // ElevenLabs out of reach for now (not the key, the plan or the
+    // credits): asked again in a while, so a tunnel does not lose the
+    // voice for the rest of the book.
+    final passing = e is PaidVoiceError && e.passing;
+    if (passing) {
+      final back = [for (final v in natural) if (isEleven(v) || isCloud(v)) v];
+      Timer(const Duration(minutes: 2), () => _failed.removeAll(back));
+    }
     VoiceLog.instance.note('fallback', {
       'from': natural.first,
       'to': fallbackVoiceOf?.call() ?? '',
       'why': voiceLogError(e),
     });
-    final name = neuralVoiceFor(natural.first)?.name ?? 'The natural voice';
+    final name = neuralVoiceFor(natural.first)?.name ??
+        ElevenLabs.instance.byVoiceName(natural.first)?.name ??
+        CloudVoices.instance.byVoiceName(natural.first)?.name ??
+        'The natural voice';
     debugPrint('TomeVoice: $name failed ($e); reading on in the phone\'s voice');
-    notice.value = natural.contains(narrator)
+    // ElevenLabs says why (credits, the key, the network).
+    notice.value = e is PaidVoiceError
+        ? (natural.contains(narrator)
+            ? "${e.message} The phone's own voice reads on${passing ? ' for now' : ''}."
+            : '${e.message} The narrator reads the dialogue${passing ? ' for now' : ''}.')
+        : natural.contains(narrator)
         ? "$name could not speak on this phone, so the phone's own voice reads on."
         : character
             ? "$name could not speak on this phone, so its character's lines are read in the dialogue voice."
@@ -1089,6 +1109,15 @@ class PlaybackScheduler {
         // alone, then the rest.
         final plain = quoted == null || (open != true && !text.contains(_quoteMark));
         final cut = quickStart && _chunks.isEmpty && plain ? firstClauseEnd(text) : -1;
+        // An ElevenLabs voice is told the sentences either side of the one
+        // it says (or the rest of it, for a first clause made alone), so it
+        // carries the reading on in one voice and tone rather than saying
+        // each sentence cold. They are not charged for; nothing else uses
+        // them.
+        String? around(int j) =>
+            !isEleven(narrator) || j < 0 || j >= units.length ? null : (respell?.call(units[j]) ?? Respelled.same(units[j].text)).text;
+        final before = around(i - 1);
+        final after = around(i + 1);
         var headSpeechMs = 0;
         if (cut > 0) {
           final head = await makeSentence(
@@ -1103,6 +1132,8 @@ class PlaybackScheduler {
             levelDb: _levelDb,
             urgent: true,
             stale: () => gen != _gen,
+            previousText: before,
+            nextText: isEleven(narrator) ? text.substring(cut) : null,
           );
           if (head == null || gen != _gen) return;
           if (!await _queue(gen, i, head, said.changed ? _onPage(head.timings, said) : head.timings,
@@ -1157,6 +1188,8 @@ class PlaybackScheduler {
           levelDb: _levelDb,
           urgent: urgent || cut > 0,
           stale: () => gen != _gen,
+          previousText: cut > 0 && isEleven(narrator) ? text.substring(0, cut + last.start) : before,
+          nextText: after,
         );
         if (r == null || gen != _gen) return;
         // The rest's words, placed in the whole sentence.
@@ -1244,6 +1277,15 @@ class PlaybackScheduler {
         // A natural voice that cannot speak (a broken download, too little
         // memory, its worker gone): the same sentence again in the phone's
         // voice, not skipped.
+        // ElevenLabs busy, or out of reach for a moment: the same sentence
+        // again, after a breath, twice, before it counts.
+        if (e is PaidVoiceError && e.passing && retries < 2) {
+          retries++;
+          await Future<void>.delayed(Duration(milliseconds: 900 * retries));
+          continue;
+        }
+        retries = 0;
+        // An ElevenLabs voice that cannot speak goes the way of a natural one.
         if (_fallBack(narrator, quoted, e, character: quoted != dialogue)) continue;
         failures++;
         _next = i + 1;
@@ -1635,6 +1677,8 @@ Future<RenderedSpeech?> makeSentence({
   double? levelDb,
   bool urgent = true,
   bool Function()? stale,
+  String? previousText,
+  String? nextText,
 }) async {
   final s = settings;
   // A sentence in the middle of a long quote has no marks of its own.
@@ -1643,6 +1687,8 @@ Future<RenderedSpeech?> makeSentence({
           text: text,
           engineId: engineId,
           voiceName: narrator,
+          previousText: previousText,
+          nextText: nextText,
           rate: s.speedScale,
           pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
           urgent: urgent,

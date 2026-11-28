@@ -29,10 +29,10 @@ import 'tap_log.dart';
 class Skin {
   const Skin._();
 
-  /// The colour theme in use (Forest, Lavender, Ocean, Black, Paper, the
+  /// The colour theme in use (Paper, Forest, Lavender, Ocean, Black, the
   /// reader's own or the wallpaper's). The colours below read from it, so
   /// every screen follows a change.
-  static Palette palette = Palette.forest;
+  static Palette palette = Palette.start;
 
   /// The cover colour of the book being read, which the whole app follows
   /// when book colours are on (set by the shell, read by the app's theme).
@@ -165,7 +165,7 @@ class Skin {
   }
 
   /// The scene where [c] is, when the theme is a scene theme (scene.dart).
-  static Scene? sceneOf(BuildContext c) => paletteOf(c).scene;
+  static Scene? sceneOf(BuildContext c) => paletteOf(c).sceneFor(Theme.of(c).brightness);
 
   /// What a screen is drawn on: the diagonal wash, or a scene's backdrop.
   static Decoration groundDecoration(BuildContext c) {
@@ -196,26 +196,33 @@ class Skin {
   static Color darkOn(BuildContext c) => darkFor(paletteOf(c), Theme.of(c).brightness);
   static Color onDark(BuildContext c) => onDarkFor(paletteOf(c), Theme.of(c).brightness);
 
-  /// The dark bar under a player or a scroller's bubble, in [p] and [b], and
-  /// what is written on it (and on a snack bar).
-  static Color darkFor(Palette p, Brightness b) => b == Brightness.dark ? p.nightSheet : dark;
-  static Color onDarkFor(Palette p, Brightness b) => b == Brightness.dark ? p.nightInk : p.day[2];
+  /// The bar under a player, a scroller's bubble, a floating pill, in [p]
+  /// and [b], and what is written on it (and on a snack bar). By night the
+  /// deepest surface; by day a light one in the theme's own tint, never the
+  /// near-black it once was (a light theme is light all the way through).
+  static Color darkFor(Palette p, Brightness b) => b == Brightness.dark ? p.nightSheet : p.dayBar;
+  static Color onDarkFor(Palette p, Brightness b) => b == Brightness.dark ? p.nightInk : p.dayInk;
 
-  /// A snack bar or a tooltip in [p] and [b].
+  /// A snack bar or a tooltip in [p] and [b]: lifted off the ground in the
+  /// theme's tint, by day a shade deeper than the bar.
   static Color snackFor(Palette p, Brightness b) =>
-      b == Brightness.dark ? Color.lerp(p.nightSheet, Colors.white, 0.12)! : dark2;
+      b == Brightness.dark ? Color.lerp(p.nightSheet, Colors.white, 0.12)! : p.daySnack;
+
+  /// A faint veil on the bar ([darkOn]): a chip, a handle's track.
+  static Color veilOnDark(BuildContext c) => onDark(c).withValues(alpha: isDark(c) ? 0.08 : 0.07);
 
   /// A hairline: borders of rows, fields and dividers.
   static Color outlineOn(BuildContext c) =>
       isDark(c) ? Colors.white.withValues(alpha: 0.09) : capsuleEdge;
 
   /// Something raised on a sheet (a choice, a voice row).
-  static Color raisedOn(BuildContext c) => raised;
+  static Color raisedOn(BuildContext c) => raisedFor(Theme.of(c).brightness);
+  static Color raisedFor(Brightness b) => raised;
   static final raised = Colors.white.withValues(alpha: 0.07);
 
-  /// The cream discs the reference uses for the prev/next pair.
+  /// The discs for the prev/next pair: by day in the theme's own tint.
   static Color disc(BuildContext c) =>
-      isDark(c) ? const Color(0x2EF2EADA) : const Color(0xFFF0E6D6);
+      isDark(c) ? const Color(0x2EF2EADA) : Color.lerp(paletteOf(c).daySheet, paletteOf(c).day[1], 0.45)!;
 
   // ---- type ------------------------------------------------------------
 
@@ -258,6 +265,14 @@ class Skin {
       Scene.blackRose => ('CormorantGaramond', 1.12, 0.01, FontWeight.w600),
       Scene.silverDragon => ('MarcellusSC', 0.94, 0.06, FontWeight.w400),
       Scene.oldTome => ('IMFellEnglish', 1.1, 0.0, FontWeight.w400),
+      // Morris's own types were Golden and Troy; IM Fell is of that
+      // printing. Roman capitals cut in stone for marble.
+      Scene.morris => ('IMFellEnglish', 1.08, 0.0, FontWeight.w400),
+      Scene.botanical => ('CormorantGaramond', 1.14, 0.01, FontWeight.w600),
+      Scene.ukiyoe => ('MarcellusSC', 0.94, 0.08, FontWeight.w400),
+      Scene.marble => ('Cinzel', 0.9, 0.06, FontWeight.w400),
+      // A survey map's plain, wide lettering.
+      Scene.topoDay || Scene.topoNight => ('Figtree', 0.96, 0.06, FontWeight.w700),
     };
     final s = size * scale;
     return TextStyle(
@@ -268,12 +283,14 @@ class Skin {
       fontWeight: w,
       fontVariations: [FontVariation('wght', w.value.toDouble())],
       color: color ?? inkOn(c),
-      shadows: [
-        // The place's light on the letters.
-        Shadow(
-            color: accentOf(c).withValues(alpha: scene.kin == Scene.solar ? 0.55 : 0.35),
-            blurRadius: scene.kin == Scene.solar ? 10 : 14),
-      ],
+      // The place's light on the letters (none by day: ink on paper).
+      shadows: scene.light
+          ? null
+          : [
+              Shadow(
+                  color: accentOf(c).withValues(alpha: scene.kin == Scene.solar ? 0.55 : 0.35),
+                  blurRadius: scene.kin == Scene.solar ? 10 : 14),
+            ],
     );
   }
 
@@ -400,7 +417,7 @@ class Skin {
     final deep = palette.accentDeep;
     // A control's mark (a switch that is on, a bar's fill): the full accent
     // is too pale on a light ground, so by day it is the deep one. A slider
-    // by day is on light sheets and on the player's dark bar: a tone between.
+    // by day is on light sheets, capsules and the player's light bar.
     final mark = dark ? amber : deep;
     final slide = dark ? amber : sliderMarkOf(palette);
     final inkColor = palette.inkFor(b);
@@ -430,7 +447,7 @@ class Skin {
     final pill = RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.pill));
     // In a scene (scene_crafted.dart): its sheets, dialogs, menus and
     // drawer edged in its material, its own knob, its own buttons.
-    final scene = palette.scene;
+    final scene = palette.sceneFor(b);
     ShapeBorder edged(BorderRadius r) => scene == null ? RoundedRectangleBorder(borderRadius: r) : SceneEdge(scene, borderRadius: r);
 
     return ThemeData(
@@ -522,9 +539,13 @@ class Skin {
         behavior: SnackBarBehavior.floating,
         backgroundColor: snackFor(palette, b),
         contentTextStyle: uiStyle(14, FontWeight.w500, onDarkFor(palette, b)),
-        actionTextColor: amberSoft,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.row)),
-        elevation: 0,
+        // By day a light card on a light ground: a soft shadow lifts it.
+        elevation: dark ? 0 : 3,
+        actionTextColor: dark ? amberSoft : deep,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Radii.row),
+          side: dark ? BorderSide.none : const BorderSide(color: capsuleEdge),
+        ),
       ),
       popupMenuTheme: PopupMenuThemeData(
         color: sheet,
@@ -586,7 +607,7 @@ class Skin {
           textStyle: uiStyle(15, FontWeight.w700),
           // On the board: scribbled in with chalk, a chalk rim round it. In
           // a scene with controls of its own: its glass, slate or leather.
-          backgroundBuilder: palette.scene == Scene.sketch
+          backgroundBuilder: scene == Scene.sketch
               ? (context, states, child) => CustomPaint(
                     painter: states.contains(WidgetState.disabled) ? null : SketchFillPainter(amber),
                     child: child,
@@ -621,6 +642,12 @@ class Skin {
               Scene.solar => const Color(0x99FFCA70),
               Scene.dungeon => const Color(0x997A6656),
               Scene.sketch => const Color(0x99EDE9E0),
+              Scene.morris => const Color(0xB33E5A3A),
+              Scene.botanical => const Color(0xCCC6A25A),
+              Scene.ukiyoe => const Color(0xCC1F1B17),
+              Scene.marble => const Color(0xCCC09A4E),
+              Scene.topoDay => const Color(0x994A453D),
+              Scene.topoNight => const Color(0x99B8BEC7),
             },
             width: scene == null ? 1 : 1.2,
           ),
@@ -649,6 +676,7 @@ class Skin {
         decoration: BoxDecoration(
           color: snackFor(palette, b),
           borderRadius: BorderRadius.circular(Radii.chip),
+          border: dark ? null : Border.all(color: capsuleEdge),
         ),
         textStyle: uiStyle(12.5, FontWeight.w500, onDarkFor(palette, b)),
       ),
@@ -686,7 +714,7 @@ class Palette {
     required this.onAccent,
     required this.nightCapsule,
     required this.nightSheet,
-    this.dayCapsule = const Color(0xF2FFFFFF),
+    Color? dayCapsule,
     this.daySheet = const Color(0xFFF7F1E6),
     this.only,
     this.dayInk = Skin.ink,
@@ -698,7 +726,8 @@ class Palette {
     this.dayDanger = Skin.danger,
     this.nightDanger = Skin.nightDanger,
     this.scene,
-  });
+    this.nightScene,
+  }) : _dayCapsule = dayCapsule;
 
   final String id;
   final String label;
@@ -724,8 +753,19 @@ class Palette {
   final Color onAccent;
   final Color nightCapsule;
   final Color nightSheet;
-  final Color dayCapsule;
+  /// A card on the light ground: the ground's lightest band most of the way
+  /// to white, so it is light in the theme's own tint, never a slab of pure
+  /// white; all but opaque, as the dark theme's are.
+  Color get dayCapsule => _dayCapsule ?? Color.lerp(day[0], Colors.white, 0.62)!.withAlpha(0xF2);
+  final Color? _dayCapsule;
   final Color daySheet;
+
+  /// The bar under a player by day: the ground's deeper band let into the
+  /// sheet, a light surface in the theme's own colour.
+  Color get dayBar => Color.lerp(day[1], daySheet, 0.55)!;
+
+  /// A snack bar or a tooltip by day: a shade deeper than [dayBar].
+  Color get daySnack => Color.lerp(day[1], daySheet, 0.30)!;
 
   /// A palette that only exists in one brightness (Black, Paper).
   final Brightness? only;
@@ -746,6 +786,13 @@ class Palette {
   /// A scene theme's place (scene.dart): its art behind every screen, its
   /// frames and panels. Null for a colour theme.
   final Scene? scene;
+
+  /// The place by night, for the one scene that has both (Topography); else
+  /// [scene], whichever the brightness.
+  final Scene? nightScene;
+
+  /// The place shown in [b].
+  Scene? sceneFor(Brightness b) => b == Brightness.dark ? (nightScene ?? scene) : scene;
 
   Color inkFor(Brightness b) => b == Brightness.dark ? nightInk : dayInk;
   Color inkSoftFor(Brightness b) => b == Brightness.dark ? nightInkSoft : dayInkSoft;
@@ -808,23 +855,28 @@ class Palette {
     only: Brightness.dark,
   );
 
-  /// Warm sepia, for reading by day. Its sienna is just deep enough for the
-  /// cream on a button to read at 4.5:1.
-  static const paper = Palette(
+  /// Warm paper by day, the same paper under a lamp by night: cream and
+  /// sepia ink, then deep brown with cream type. The theme a new reader
+  /// starts in. Its caramel is light enough to mark a control on the brown
+  /// and dark enough for the dark label on a button to read at 4.5:1.
+  static final paper = readable(const Palette(
     id: 'paper',
     label: 'Paper',
     day: [Color(0xFFF3EBDD), Color(0xFFEFE4D1), Color(0xFFF2E7D5), Color(0xFFEADBC3)],
-    night: [Color(0xFF16241C), Color(0xFF1F3128), Color(0xFF33291F), Color(0xFF3D2E1F)],
-    accent: Color(0xFFA95B22),
-    accentSoft: Color(0xFFD98B4E),
+    night: [Color(0xFF231D16), Color(0xFF2A231A), Color(0xFF2F261C), Color(0xFF352A1E)],
+    accent: Color(0xFFC47C40),
+    accentSoft: Color(0xFFD99C63),
     accentDeep: Color(0xFF884517),
-    onAccent: Color(0xFFFBF3E6),
-    nightCapsule: Color(0xF23A4238),
-    nightSheet: Color(0xFF0E120C),
-    dayCapsule: Color(0xF2FFFDF7),
+    onAccent: Color(0xFF1E140B),
+    nightCapsule: Color(0xF241372C),
+    nightSheet: Color(0xFF17130E),
+    dayCapsule: Color(0xF2FDF9F1),
     daySheet: Color(0xFFFBF6EC),
-    only: Brightness.light,
-  );
+    // Sepia type, as printed.
+    dayInk: Color(0xFF221A12),
+    dayInkSoft: Color(0xFF54473A),
+    dayInkFaint: Color(0xFF54473A),
+  ));
 
   /// Designer: oxblood leather and brass.
   static final library = readable(const Palette(
@@ -1111,11 +1163,130 @@ class Palette {
     scene: Scene.oldTome,
   ));
 
-  static final scenes = [forestScene, silverWitch, solar, dungeon, sketch, blackRose, silverDragon, oldTome];
+  /// Morris garden: Willow Bough on linen, printed in indigo.
+  static final morris = readable(const Palette(
+    id: 'scene-morris',
+    label: 'Morris garden',
+    day: [Color(0xFFF4EEDF), Color(0xFFEDE5D0), Color(0xFFF2EBDB), Color(0xFFE8DEC8)],
+    night: [Color(0xFFF4EEDF), Color(0xFFEDE5D0), Color(0xFFF2EBDB), Color(0xFFE8DEC8)],
+    accent: Color(0xFF2F5277),
+    accentSoft: Color(0xFF6E8FB3),
+    accentDeep: Color(0xFF23415F),
+    onAccent: Color(0xFFF7F2E6),
+    nightCapsule: Color(0xF2FBF7EC),
+    nightSheet: Color(0xFFF8F3E7),
+    dayCapsule: Color(0xF2FBF7EC),
+    daySheet: Color(0xFFF8F3E7),
+    dayInk: Color(0xFF1E2620),
+    dayInkSoft: Color(0xFF3F4A40),
+    dayInkFaint: Color(0xFF4A5548),
+    only: Brightness.light,
+    scene: Scene.morris,
+  ));
 
-  static final all = [forest, lavender, ocean, black, paper, ...designer, ...scenes];
+  /// Botanical: Redouté's rose on watercolour paper, dusty rose and gold.
+  static final botanical = readable(const Palette(
+    id: 'scene-botanical',
+    label: 'Botanical',
+    day: [Color(0xFFFAF4EA), Color(0xFFF5EBDD), Color(0xFFF8F0E5), Color(0xFFF1E5D6)],
+    night: [Color(0xFFFAF4EA), Color(0xFFF5EBDD), Color(0xFFF8F0E5), Color(0xFFF1E5D6)],
+    accent: Color(0xFFB85068),
+    accentSoft: Color(0xFFE3A3B0),
+    accentDeep: Color(0xFF8E3247),
+    onAccent: Color(0xFFFFF8F4),
+    nightCapsule: Color(0xF2FFFBF5),
+    nightSheet: Color(0xFFFDF8F0),
+    dayCapsule: Color(0xF2FFFBF5),
+    daySheet: Color(0xFFFDF8F0),
+    dayInk: Color(0xFF2A2622),
+    dayInkSoft: Color(0xFF4E4740),
+    dayInkFaint: Color(0xFF5A5249),
+    only: Brightness.light,
+    scene: Scene.botanical,
+  ));
 
-  static Palette byId(String? id) => all.where((p) => p.id == idNow(id)).firstOrNull ?? forest;
+  /// Ukiyo-e: the Red Fuji on washi, sumi ink and a vermilion seal.
+  static final ukiyoe = readable(const Palette(
+    id: 'scene-ukiyoe',
+    label: 'Ukiyo-e',
+    day: [Color(0xFFF3ECDB), Color(0xFFECE3CE), Color(0xFFF1E9D7), Color(0xFFE6DCC5)],
+    night: [Color(0xFFF3ECDB), Color(0xFFECE3CE), Color(0xFFF1E9D7), Color(0xFFE6DCC5)],
+    accent: Color(0xFFC8442E),
+    accentSoft: Color(0xFFE58A6E),
+    accentDeep: Color(0xFF9A2E1C),
+    onAccent: Color(0xFFFFF6EA),
+    nightCapsule: Color(0xF2F8F2E4),
+    nightSheet: Color(0xFFF7F1E3),
+    dayCapsule: Color(0xF2F8F2E4),
+    daySheet: Color(0xFFF7F1E3),
+    dayInk: Color(0xFF1C1915),
+    dayInkSoft: Color(0xFF423B33),
+    dayInkFaint: Color(0xFF4E463D),
+    only: Brightness.light,
+    scene: Scene.ukiyoe,
+  ));
+
+  /// Marble and gold: white veined stone, gold leaf.
+  static final marble = readable(const Palette(
+    id: 'scene-marble',
+    label: 'Marble and gold',
+    day: [Color(0xFFF8F6F2), Color(0xFFF1EEE8), Color(0xFFF6F4EF), Color(0xFFEAE6DE)],
+    night: [Color(0xFFF8F6F2), Color(0xFFF1EEE8), Color(0xFFF6F4EF), Color(0xFFEAE6DE)],
+    accent: Color(0xFFC09A4E),
+    accentSoft: Color(0xFFDCC07E),
+    accentDeep: Color(0xFF7A5A1C),
+    onAccent: Color(0xFF231A0A),
+    nightCapsule: Color(0xF2FCFBF8),
+    nightSheet: Color(0xFFFBFAF7),
+    dayCapsule: Color(0xF2FCFBF8),
+    daySheet: Color(0xFFFBFAF7),
+    dayInk: Color(0xFF1F1D19),
+    dayInkSoft: Color(0xFF45413A),
+    dayInkFaint: Color(0xFF524D45),
+    only: Brightness.light,
+    scene: Scene.marble,
+  ));
+
+  /// Topography: a survey map's contour lines, by day on warm paper and by
+  /// night on charcoal, following light and dark like the plain themes.
+  static final topo = readable(const Palette(
+    id: 'scene-topo',
+    label: 'Topography',
+    day: [Color(0xFFF4F1E9), Color(0xFFEFEBE1), Color(0xFFF2EFE6), Color(0xFFE9E4D8)],
+    night: [Color(0xFF17191C), Color(0xFF141619), Color(0xFF16181B), Color(0xFF101214)],
+    accent: Color(0xFFE8603C),
+    accentSoft: Color(0xFFFF9A72),
+    accentDeep: Color(0xFFA63D1E),
+    onAccent: Color(0xFF1A0C06),
+    nightCapsule: Color(0xF2202328),
+    nightSheet: Color(0xFF131518),
+    dayCapsule: Color(0xF2FCFBF7),
+    daySheet: Color(0xFFFBF9F4),
+    dayInk: Color(0xFF1E2024),
+    dayInkSoft: Color(0xFF45484D),
+    dayInkFaint: Color(0xFF50545A),
+    nightInk: Color(0xFFEEF0F2),
+    nightInkSoft: Color(0xFFBEC3C9),
+    nightInkFaint: Color(0xFFA3A9B0),
+    scene: Scene.topoDay,
+    nightScene: Scene.topoNight,
+  ));
+
+  static final scenes = [
+    forestScene, silverWitch, solar, dungeon, sketch, blackRose, silverDragon, oldTome,
+    // By day.
+    morris, botanical, ukiyoe, marble,
+    // By day and by night.
+    topo,
+  ];
+
+  static final all = [paper, forest, lavender, ocean, black, ...designer, ...scenes];
+
+  /// The theme a new reader starts in, and the one shown for a theme that
+  /// is no longer there.
+  static Palette get start => paper;
+
+  static Palette byId(String? id) => all.where((p) => p.id == idNow(id)).firstOrNull ?? start;
 
   /// [id] as it is now: a scene taken away gives the one its readers have
   /// instead.
@@ -1188,7 +1359,7 @@ class Palette {
         onAccent: onAccent ?? this.onAccent,
         nightCapsule: nightCapsule ?? this.nightCapsule,
         nightSheet: nightSheet ?? this.nightSheet,
-        dayCapsule: dayCapsule ?? this.dayCapsule,
+        dayCapsule: dayCapsule ?? _dayCapsule,
         daySheet: daySheet ?? this.daySheet,
         only: only,
         dayInk: dayInk ?? this.dayInk,
@@ -1200,6 +1371,7 @@ class Palette {
         dayDanger: dayDanger ?? this.dayDanger,
         nightDanger: nightDanger ?? this.nightDanger,
         scene: scene,
+        nightScene: nightScene,
       );
 
   /// The brightness this palette is shown in, given the reader's choice.

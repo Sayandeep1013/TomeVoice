@@ -819,6 +819,8 @@ class _Player extends SpeechService {
     double rate = 1.0,
     double pitch = 1.0,
     bool urgent = true,
+    String? previousText,
+    String? nextText,
   }) async =>
       {'wavPath': _quiet('${dir.path}/p${made++}.wav', seconds: 1), 'engineId': 'test', 'rangeEvents': const []};
 
@@ -872,6 +874,8 @@ class _Natural extends _Player {
     double rate = 1.0,
     double pitch = 1.0,
     bool urgent = true,
+    String? previousText,
+    String? nextText,
   }) =>
       const SpeechService().synthesise(
           text: text, engineId: engineId, voiceName: voiceName, rate: rate, pitch: pitch, urgent: urgent);

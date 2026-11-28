@@ -28,11 +28,13 @@ class BrandMark extends StatelessWidget {
         height: size,
         child: CustomPaint(
           painter: BrandPainter(
-            tile: dark ? p.nightSheet : Skin.dark,
-            tileTop: dark ? p.night[0] : Skin.darkSoft,
-            ink: dark ? p.nightInk : p.day[2],
-            accent: p.accent,
-            scene: p.scene,
+            // By day the mark is light too: the theme's tinted bar for its
+            // tile, its ink for the page, the deep accent for the spine.
+            tile: dark ? p.nightSheet : p.dayBar,
+            tileTop: dark ? p.night[0] : p.daySheet,
+            ink: dark ? p.nightInk : p.dayInk,
+            accent: dark ? p.accent : p.accentDeep,
+            scene: p.sceneFor(dark ? Brightness.dark : Brightness.light),
           ),
         ),
       ),
@@ -133,6 +135,9 @@ class BrandPainter extends CustomPainter {
     if (scene case final own? when paintBrandRim(c, box, shape, own)) return;
     switch (scene?.kin) {
       case null:
+        return;
+      // Rimmed in paintBrandRim.
+      case Scene.morris || Scene.botanical || Scene.ukiyoe || Scene.marble || Scene.topoDay || Scene.topoNight:
         return;
       case Scene.dungeon:
         // Rusted iron with four rivets.

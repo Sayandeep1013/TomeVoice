@@ -171,6 +171,9 @@ Palette _palette(OwnColours c) {
     nightCapsule: Color.lerp(c.page, Colors.white, 0.12)!.withAlpha(0xF2),
     nightSheet: deepSheet,
     daySheet: paleSheet,
+    // Cards on the reader's own page stay white: its type and accent are
+    // fitted to them as they were.
+    dayCapsule: const Color(0xF2FFFFFF),
     only: light ? Brightness.light : Brightness.dark,
     dayInk: ink(0),
     dayInkSoft: ink(0.3),
@@ -186,11 +189,11 @@ Palette _palette(OwnColours c) {
 /// has none, as on an older phone a backup was restored to).
 Palette chosenPalette(ListeningPrefs? prefs) => switch (prefs?.paletteId) {
       'own' => OwnColours.of(prefs!).made.palette,
-      'wallpaper' => WallpaperColours.palette ?? Palette.forest,
+      'wallpaper' => WallpaperColours.palette ?? Palette.start,
       final id => Palette.byId(id),
     };
 
-/// The theme Settings shows as chosen: Forest for the wallpaper's on a
-/// phone that has no wallpaper colours.
+/// The theme Settings shows as chosen: the starting theme for the
+/// wallpaper's on a phone that has no wallpaper colours.
 String chosenPaletteId(ListeningPrefs prefs) =>
-    prefs.paletteId == 'wallpaper' && WallpaperColours.palette == null ? 'forest' : Palette.idNow(prefs.paletteId)!;
+    prefs.paletteId == 'wallpaper' && WallpaperColours.palette == null ? Palette.start.id : Palette.idNow(prefs.paletteId)!;

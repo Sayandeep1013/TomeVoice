@@ -66,6 +66,11 @@ copied in. The generated project cannot know about any of this:
     3.98.4 ported to Java, LGPL 2.1 or later (GPL-3.0 compatible), from Maven
     Central. Android has no MP3 encoder of its own.
 
+15. **The icon follows the theme** (Settings > Appearance): the launcher entry
+    is an activity-alias of MainActivity, one per theme icon that
+    tools/brand/make_theme_icons.py wrote (mipmap-anydpi-v26/ic_launcher_t_*),
+    each off but the classic one; LauncherIcon.kt turns one on.
+
 Idempotent: running it twice changes nothing the second time.
 """
 
@@ -73,6 +78,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -90,6 +96,12 @@ PDFBOX = 'implementation("com.tom-roush:pdfbox-android:2.0.27.0")'
 # Web novels: WorkManager runs the check for new chapters with the app closed
 # (NovelCheckWorker.kt). Apache-2.0 (AndroidX).
 WORK = 'implementation("androidx.work:work-runtime:2.10.0")'
+
+# The Play build only: Google Play's in-app updates (PlayUpdates.kt in
+# android_overlay_play), so the app itself says a new version is out and
+# installs it with a restart. The GitHub build updates from GitHub and has
+# a stand-in without this library.
+PLAY_UPDATE = 'implementation("com.google.android.play:app-update:2.1.0")'
 
 # The standard (single-threaded) build, not -openmp: OCR runs beside reading
 # aloud, and the OpenMP one would take every core from the voice. Its native
@@ -350,6 +362,28 @@ def _open_activity() -> str:
 """
 
 
+# The launcher entries (15 above). MainActivity loses its own LAUNCHER filter
+# and each alias carries one; only .IconClassic starts on, so a fresh install
+# shows the classic icon until the reader's theme picks another.
+def _icon_aliases(res: Path) -> str:
+    keys = sorted(f.stem[len("ic_launcher_t_"):] for f in (res / "mipmap-anydpi-v26").glob("ic_launcher_t_*.xml"))
+    def alias(name: str, icon: str, enabled: bool, round_: str = "") -> str:
+        return f"""        <activity-alias
+            android:name=".{name}"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/{icon}"
+            android:roundIcon="@mipmap/{round_ or icon}"
+            android:enabled="{'true' if enabled else 'false'}"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+"""
+    return alias("IconClassic", "ic_launcher", True, "ic_launcher_round") + "".join(alias(f"Icon_{k}", f"ic_launcher_t_{k}", False) for k in keys)
+
+
 # What the Google Play build (TV_STORE=play) may not have: installing other
 # APKs (the GitHub self-updater's) and asking to be left out of battery
 # saving (private/play-store-report-2026-11-20.html, section 1).
@@ -417,6 +451,17 @@ def patch_manifest(path: Path, label: str = APP_LABEL, play: bool = False) -> st
     if ".ShareProvider" not in text:
         text = text.replace("</application>", PROVIDER + "    </application>", 1)
         notes.append("share provider")
+
+    if ".IconClassic" not in text:
+        launcher = re.compile(
+            r"[ \t]*<intent-filter>\s*<action android:name=\"android\.intent\.action\.MAIN\"\s*/>\s*"
+            r"<category android:name=\"android\.intent\.category\.LAUNCHER\"\s*/>\s*</intent-filter>\n?"
+        )
+        text, n = launcher.subn("", text, count=1)
+        if n != 1:
+            raise SystemExit("manifest: MainActivity's launcher filter not found")
+        text = text.replace("</application>", _icon_aliases(path.parents[0] / "res") + "    </application>", 1)
+        notes.append("theme icons")
 
     if ".OpenActivity" not in text:
         text = text.replace("</application>", _open_activity() + "    </application>", 1)
@@ -495,7 +540,7 @@ SIGNING_BLOCK = """    signingConfigs {
 """
 
 
-def patch_gradle(path: Path, signing: bool, app_id: str = APPLICATION_ID) -> str:
+def patch_gradle(path: Path, signing: bool, app_id: str = APPLICATION_ID, play: bool = False) -> str:
     text = path.read_text(encoding="utf-8")
     original = text
     notes = []
@@ -549,6 +594,10 @@ def patch_gradle(path: Path, signing: bool, app_id: str = APPLICATION_ID) -> str
         else:
             text = text.rstrip() + "\n" + JITPACK_GROOVY + f"\ndependencies {{\n    {TESSERACT_GROOVY}\n}}\n"
         notes.append("tesseract (OCR)")
+
+    if play and PLAY_UPDATE not in text and path.suffix == ".kts":
+        text = text.rstrip() + f"\n\ndependencies {{\n    {PLAY_UPDATE}\n}}\n"
+        notes.append("play in-app updates")
 
     if JUMP3R not in text and JUMP3R_GROOVY not in text:
         if path.suffix == ".kts":
@@ -605,6 +654,11 @@ def main() -> int:
     play = os.environ.get("TV_STORE") == "play"
     if play:
         print("store: Google Play (no self-updater, no battery exemption request)")
+        # Play's own sources over the GitHub build's stand-ins (PlayUpdates.kt).
+        play_overlay = app_dir / "android_overlay_play"
+        if play_overlay.is_dir():
+            shutil.copytree(play_overlay, app_dir / "android", dirs_exist_ok=True)
+            print("store: Play's in-app updates")
     print(patch_manifest(manifest, label, play=play))
 
     gradle_candidates = [
@@ -623,7 +677,7 @@ def main() -> int:
         print("gradle: TV_KEYSTORE not set — release APK uses the throwaway debug key")
     elif not Path(keystore).exists():
         print(f"gradle: {keystore} is written just before the build")
-    print(patch_gradle(gradle, signing, app_id))
+    print(patch_gradle(gradle, signing, app_id, play=play))
     print(patch_gradle_properties(app_dir / "android/gradle.properties"))
 
     return 0

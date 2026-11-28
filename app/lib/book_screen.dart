@@ -34,6 +34,7 @@ import 'rules_screen.dart';
 import 'speakers.dart' show Character;
 import 'speech_service.dart';
 import 'text_chapters_sheet.dart';
+import 'stats.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
@@ -743,7 +744,104 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
             ),
           ],
         ),
+        if (!e.finished && e.wordCount > 0)
+          ValueListenableBuilder<int>(
+            valueListenable: StatsStore.instance.changes,
+            builder: (context, _, __) => _finishBy(context),
+          ),
       ],
+    );
+  }
+
+  /// A day to finish the book by, and what that asks of each day: the
+  /// words left at the reader's own listening pace (words heard a minute,
+  /// measured), shared over the days to it.
+  Widget _finishBy(BuildContext context) {
+    final e = _entry;
+    final stats = StatsStore.instance;
+    final by = stats.finishBy[e.id];
+    Future<void> pick() async {
+      final now = DateTime.now();
+      final shown = by == null ? now.add(const Duration(days: 30)) : dayOf(by);
+      final day = await showDatePicker(
+        context: context,
+        firstDate: now,
+        lastDate: now.add(const Duration(days: 730)),
+        initialDate: shown.isBefore(now) ? now : shown,
+        helpText: 'Finish by',
+      );
+      if (day != null) await stats.setFinishBy(e.id, day);
+    }
+
+    if (by == null) {
+      return Padding(
+        padding: const EdgeInsets.only(top: Gap.s),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () => unawaited(pick()),
+            icon: const Icon(Icons.flag_outlined, size: 18),
+            label: const Text('Set a day to finish by'),
+          ),
+        ),
+      );
+    }
+    final measured = stats.wordsPerMinute();
+    final wpm = measured ?? 165 * _prefs.speedFor(e.id);
+    final wordsLeft = (e.wordCount * (1 - e.progress)).round();
+    final plan = finishPlan(wordsLeft: wordsLeft, by: dayOf(by), wpm: wpm);
+    final today = stats.minutesToday(e.id);
+    final date = dayOf(by);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final when = '${date.day} ${months[date.month - 1]}';
+    final String line;
+    final String detail;
+    if (plan == null) {
+      line = 'The day to finish by, $when, has passed';
+      detail = 'Pick another, or take it off.';
+    } else {
+      line = 'Finish by $when: about ${plan.minutesPerDay} min a day';
+      final pace = measured != null ? 'at your own pace, ${measured.round()} words a minute' : 'at about ${wpm.round()} words a minute';
+      final left = plan.daysLeft == 1 ? 'today is the last day' : '${plan.daysLeft} days left';
+      detail = today >= plan.minutesPerDay
+          ? "Today's done ($today min) · $left"
+          : '$today of ${plan.minutesPerDay} min today · $left · $pace';
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: Gap.m),
+      child: Material(
+        color: Skin.capsuleOn(context),
+        shape: Skin.cardShape(context, Radii.row),
+        child: InkWell(
+          customBorder: Skin.cardShape(context, Radii.row),
+          onTap: () => unawaited(pick()),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.l, Gap.m, Gap.s, Gap.m),
+            child: Row(
+              children: [
+                Icon(plan != null && today >= plan.minutesPerDay ? Icons.flag_rounded : Icons.flag_outlined,
+                    size: 20, color: Skin.accentInkOf(context)),
+                const SizedBox(width: Gap.m),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(line, style: Skin.label(context, size: 14.5, color: Skin.inkOn(context))),
+                      const SizedBox(height: 2),
+                      Text(detail, style: Skin.meta(context, size: 10.5)),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'No day to finish by',
+                  onPressed: () => unawaited(stats.setFinishBy(e.id, null)),
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 

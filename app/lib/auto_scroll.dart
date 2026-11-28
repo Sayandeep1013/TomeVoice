@@ -135,8 +135,8 @@ class AutoScrollPill extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   auto.held
-                      ? button('Go on', Icons.play_arrow_rounded, auto.goOn, color: Skin.accentOf(context))
-                      : button('Pause auto-scroll', Icons.pause_rounded, auto.hold, color: Skin.accentOf(context)),
+                      ? button('Go on', Icons.play_arrow_rounded, auto.goOn, color: Skin.accentMarkOf(context))
+                      : button('Pause auto-scroll', Icons.pause_rounded, auto.hold, color: Skin.accentMarkOf(context)),
                   Flexible(
                     child: Text(
                       auto.label(pages: pages),

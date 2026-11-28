@@ -783,6 +783,8 @@ class _Voices extends SpeechService {
     double rate = 1.0,
     double pitch = 1.0,
     bool urgent = true,
+    String? previousText,
+    String? nextText,
   }) async {
     final k = asked.length;
     asked.add((text: text, voice: voiceName, rate: rate, pitch: pitch, engine: engineId));

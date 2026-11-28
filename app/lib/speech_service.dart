@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show wordSpans;
 
+import 'cloud_voices.dart';
+import 'eleven_labs.dart';
 import 'neural_voices.dart';
 import 'scheduler.dart';
 
@@ -107,6 +109,8 @@ class SpeechService {
     double rate = 1.0,
     double pitch = 1.0,
     bool urgent = true,
+    String? previousText,
+    String? nextText,
   }) async {
     final previous = _synthBusy;
     final gate = Completer<void>();
@@ -121,6 +125,26 @@ class SpeechService {
       // it. Made anyway, each such sentence kept the jump's own one waiting
       // a whole sentence more, seconds of it with a natural voice.
       if (_cancels != cancels) throw PlatformException(code: 'TTS_STOPPED', message: 'Synthesis cancelled');
+      // An ElevenLabs voice, on the reader's own key (eleven_labs.dart).
+      if (isEleven(voiceName)) {
+        return await ElevenLabs.instance.synthesise(
+          voiceId: voiceName!.substring(elevenPrefix.length),
+          text: text,
+          speed: rate,
+          outDir: synthTempDir().path,
+          previousText: previousText,
+          nextText: nextText,
+        );
+      }
+      // A cloud voice (OpenAI, Google, Azure) on the reader's own key.
+      if (isCloud(voiceName)) {
+        return await CloudVoices.instance.synthesise(
+          voiceName: voiceName!,
+          text: text,
+          speed: rate,
+          outDir: synthTempDir().path,
+        );
+      }
       // A natural voice is made here, not by the phone's speech engine.
       final natural = neuralVoiceFor(voiceName);
       if (natural != null) {

@@ -372,12 +372,12 @@ void main() {
       expect(SystemColours.fromPlatform(short), isNull);
     });
 
-    test('are read from the phone, and a theme kept from a newer phone shows Forest on one without', () async {
+    test('are read from the phone, and a theme kept from a newer phone shows Paper on one without', () async {
       final prefs = ListeningPrefs(paletteId: 'wallpaper');
       await WallpaperColours.refresh();
       expect(WallpaperColours.palette, isNull);
-      expect(chosenPalette(prefs), Palette.forest);
-      expect(chosenPaletteId(prefs), 'forest');
+      expect(chosenPalette(prefs), Palette.paper);
+      expect(chosenPaletteId(prefs), 'paper');
 
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
         _channel,

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <bitmap android:src="@drawable/ic_launcher_page" android:tint="@color/ic_t_scene_black_rose_page" />
+    </item>
+    <item>
+        <bitmap android:src="@drawable/ic_launcher_spine" android:tint="@color/ic_t_scene_black_rose_spine" />
+    </item>
+</layer-list>

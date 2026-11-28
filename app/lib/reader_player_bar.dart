@@ -166,7 +166,8 @@ class ReaderPlayerBar extends StatelessWidget {
       decoration: Skin.panel(
         context,
         BoxDecoration(
-          color: Color.lerp(Skin.darkOn(context), Skin.accentOf(context), 0.16),
+          // In the book's colour by night; by day the light bar as it is.
+          color: Skin.isDark(context) ? Color.lerp(Skin.darkOn(context), Skin.accentOf(context), 0.16) : Skin.darkOn(context),
           borderRadius: BorderRadius.circular(Radii.card + 4),
           boxShadow: Skin.lift(context),
         ),
@@ -323,7 +324,7 @@ class ReaderPlayerBar extends StatelessWidget {
         tooltip: tip,
         onPressed: onTap,
         iconSize: 21,
-        color: lit ? Skin.accentSoftOf(context) : Skin.onDark(context),
+        color: lit ? Skin.accentInkOf(context) : Skin.onDark(context),
         icon: Icon(icon),
       );
 
@@ -447,14 +448,14 @@ class ReaderPlayerBar extends StatelessWidget {
       child: Capsule(
         onTap: onTap,
         border: false,
-        color: Colors.white.withValues(alpha: 0.08),
+        color: Skin.veilOnDark(context),
         padding: const EdgeInsets.symmetric(horizontal: Gap.m, vertical: 7),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 130),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 14, color: Skin.accentSoftOf(context)),
+              Icon(icon, size: 14, color: Skin.accentInkOf(context)),
               const SizedBox(width: 6),
               Flexible(
                 child: Text(

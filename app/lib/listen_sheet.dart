@@ -6,6 +6,10 @@ import 'package:tomevoice_audio/tomevoice_audio.dart';
 
 import 'auto_scroll.dart';
 import 'book_tint.dart';
+import 'cloud_screen.dart';
+import 'cloud_voices.dart';
+import 'eleven_labs.dart';
+import 'eleven_screen.dart';
 import 'neural_screen.dart';
 import 'neural_voices.dart';
 import 'own_fonts.dart';
@@ -16,6 +20,7 @@ import 'prefs.dart';
 import 'reading_rules.dart';
 import 'rules_screen.dart';
 import 'speech_service.dart';
+import 'store_build.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
@@ -1715,6 +1720,12 @@ class _VoicePickerState extends State<_VoicePicker> {
                                 ),
                               ),
                             ],
+                            // Voices from the reader's own ElevenLabs account.
+                            if (!playBuild) ...[
+                              const SizedBox(height: Gap.m),
+                              _elevenVoices(context),
+                              _cloudVoices(context),
+                            ],
                             Padding(
                               padding: const EdgeInsets.fromLTRB(Gap.l, Gap.l, Gap.l, 0),
                               child: TextButton.icon(
@@ -1936,6 +1947,69 @@ class _VoicePickerState extends State<_VoicePicker> {
           ],
         ),
       );
+
+  /// The way to ElevenLabs voices on the reader's own key.
+  Widget _elevenVoices(BuildContext context) {
+    final eleven = ElevenLabs.instance;
+    final selected = widget.controller.voiceName;
+    final inUse = eleven.byVoiceName(selected);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, 0),
+      child: SheetAction(
+        icon: Icons.graphic_eq_rounded,
+        label: 'ElevenLabs voices',
+        detail: inUse != null
+            ? 'Reading in ${inUse.name}, from your ElevenLabs account'
+            : eleven.hasKey
+                ? '${eleven.voices.length} in your account, on your own key and credits'
+                : 'With your own ElevenLabs key: its voices, paid from its credits',
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => ElevenLabsScreen(
+              selected: selected,
+              onChoose: (name) {
+                if (!mounted) return;
+                setState(() => widget.controller.chooseVoice(name));
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The way to cloud voices (OpenAI, Google, Azure) on the reader's own
+  /// keys: a tenth of ElevenLabs' price or less.
+  Widget _cloudVoices(BuildContext context) {
+    final cloud = CloudVoices.instance;
+    final selected = widget.controller.voiceName;
+    final inUse = cloud.byVoiceName(selected);
+    final keys = [for (final s in CloudService.values) if (cloud.hasKey(s)) s.label];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, 0),
+      child: SheetAction(
+        icon: Icons.cloud_outlined,
+        label: 'Cloud voices',
+        detail: inUse != null
+            ? 'Reading in ${inUse.name}, from ${inUse.service.label}'
+            : keys.isNotEmpty
+                ? 'On your own key: ${keys.join(', ')}'
+                : 'OpenAI, Google or Azure on your own key: a whole novel for a few dollars',
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => CloudVoicesScreen(
+              selected: selected,
+              language: _language,
+              onChoose: (name) {
+                if (!mounted) return;
+                setState(() => widget.controller.chooseVoice(name));
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   /// The way to natural voices of the language shown, saying how many there
   /// are to have; where there are none, that the phone's voice reads it.
