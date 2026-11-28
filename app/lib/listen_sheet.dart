@@ -10,6 +10,7 @@ import 'cloud_screen.dart';
 import 'cloud_voices.dart';
 import 'eleven_labs.dart';
 import 'eleven_screen.dart';
+import 'voice_keys_screen.dart';
 import 'neural_screen.dart';
 import 'neural_voices.dart';
 import 'own_fonts.dart';
@@ -1669,8 +1670,12 @@ class _VoicePickerState extends State<_VoicePicker> {
                                 padding: EdgeInsets.all(Gap.xl),
                                 child: Center(child: CircularProgressIndicator()),
                               )
-                            else
+                            else ...[
+                              // A language the phone has no voice for may
+                              // well have one on the reader's key.
+                              if (!playBuild) ..._keyVoices(context, selected),
                               _noVoices(context),
+                            ],
                           ],
                         )
                       : ListView(
@@ -1689,6 +1694,8 @@ class _VoicePickerState extends State<_VoicePicker> {
                               const SizedBox(height: Gap.s),
                             ],
                             if (ListeningPrefs.loaded?.naturalVoices != false) _naturalVoices(context),
+                            // The voices of the reader's own keys, ready to pick.
+                            if (!playBuild) ..._keyVoices(context, selected),
                             for (final group in byRegion.entries) ...[
                               if (byRegion.length > 1 || group.key.isNotEmpty)
                                 Padding(
@@ -1723,8 +1730,7 @@ class _VoicePickerState extends State<_VoicePicker> {
                             // Voices from the reader's own ElevenLabs account.
                             if (!playBuild) ...[
                               const SizedBox(height: Gap.m),
-                              _elevenVoices(context),
-                              _cloudVoices(context),
+                              _ownKeyRow(context),
                             ],
                             Padding(
                               padding: const EdgeInsets.fromLTRB(Gap.l, Gap.l, Gap.l, 0),
@@ -1948,65 +1954,126 @@ class _VoicePickerState extends State<_VoicePicker> {
         ),
       );
 
-  /// The way to ElevenLabs voices on the reader's own key.
-  Widget _elevenVoices(BuildContext context) {
+  /// The voices of the reader's own keys (ElevenLabs, OpenAI, Google,
+  /// Azure) that speak the language shown, a tap to use one: a few of each
+  /// service, the rest on its screen. Nothing while no key is set.
+  List<Widget> _keyVoices(BuildContext context, String? selected) {
     final eleven = ElevenLabs.instance;
-    final selected = widget.controller.voiceName;
-    final inUse = eleven.byVoiceName(selected);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, 0),
-      child: SheetAction(
-        icon: Icons.graphic_eq_rounded,
-        label: 'ElevenLabs voices',
-        detail: inUse != null
-            ? 'Reading in ${inUse.name}, from your ElevenLabs account'
-            : eleven.hasKey
-                ? '${eleven.voices.length} in your account, on your own key and credits'
-                : 'With your own ElevenLabs key: its voices, paid from its credits',
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => ElevenLabsScreen(
-              selected: selected,
-              onChoose: (name) {
-                if (!mounted) return;
-                setState(() => widget.controller.chooseVoice(name));
-              },
+    final cloud = CloudVoices.instance;
+    final lang = _language.toLowerCase();
+    bool speaks(CloudVoice v) {
+      final l = v.language.toLowerCase();
+      return l.isEmpty || l == lang || l.startsWith('$lang-') || v.id.contains('Multilingual');
+    }
+
+    const most = 4;
+    final groups = <(String, List<(String, String, String)>, int, VoidCallback)>[
+      if (eleven.hasKey && eleven.voices.isNotEmpty)
+        (
+          'ElevenLabs',
+          [for (final v in eleven.voices.take(most)) (v.voiceName, v.name, v.description)],
+          eleven.voices.length,
+          () => _openKeyScreen(ElevenLabsScreen(selected: selected, onChoose: _chooseKeyVoice)),
+        ),
+      for (final s in CloudService.values)
+        if (cloud.hasKey(s))
+          () {
+            final all = cloud.voicesOf(s).where(speaks).toList();
+            return (
+              s.label,
+              [for (final v in all.take(most)) (v.voiceName, v.name, [if (v.language.isNotEmpty) v.language, if (v.note.isNotEmpty) v.note].join(' · '))],
+              all.length,
+              () => _openKeyScreen(CloudVoicesScreen(service: s, selected: selected, language: _language, onChoose: _chooseKeyVoice)),
+            );
+          }(),
+    ];
+    final shown = groups.where((g) => g.$2.isNotEmpty).toList();
+    if (shown.isEmpty) return const [];
+    return [
+      const Padding(
+        padding: EdgeInsets.fromLTRB(Gap.xl, Gap.l, Gap.xl, Gap.xs),
+        child: Eyebrow('On your own key'),
+      ),
+      for (final (label, voices, total, more) in shown) ...[
+        for (final (name, title, note) in voices) _keyVoiceRow(context, name, title, note.isEmpty ? label : '$label · $note', selected: name == selected),
+        if (total > voices.length)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.xl - Gap.s, 0, Gap.xl, Gap.xs),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(onPressed: more, child: Text('All $total $label voices')),
             ),
           ),
-        ),
-      ),
-    );
+      ],
+    ];
   }
 
-  /// The way to cloud voices (OpenAI, Google, Azure) on the reader's own
-  /// keys: a tenth of ElevenLabs' price or less.
-  Widget _cloudVoices(BuildContext context) {
+  /// A voice on the reader's key, used for this book. Not sampled on
+  /// choosing, as the phone's voices are: a sample would be paid for.
+  void _chooseKeyVoice(String name) {
+    if (!mounted) return;
+    setState(() => widget.controller.chooseVoice(name));
+  }
+
+  void _openKeyScreen(Widget screen) =>
+      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen)).then((_) {
+        if (mounted) setState(() {});
+      });
+
+  Widget _keyVoiceRow(BuildContext context, String name, String title, String note, {required bool selected}) => InkWell(
+        onTap: () => _chooseKeyVoice(name),
+        child: AnimatedContainer(
+          duration: Motion.of(context, Motion.standard),
+          curve: Motion.out,
+          color: Skin.accentOf(context).withValues(alpha: selected ? 0.12 : 0),
+          padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.s, Gap.m, Gap.s),
+          child: Row(
+            children: [
+              Icon(
+                selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                size: 22,
+                color: selected ? Skin.accentInkOf(context) : Skin.inkFaintOn(context),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: Skin.ui(size: 16, weight: FontWeight.w600, color: Skin.inkOn(context))),
+                    Text(note,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context))),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  /// Where keys are added: one screen for every service on the reader's key.
+  Widget _ownKeyRow(BuildContext context) {
+    final eleven = ElevenLabs.instance;
     final cloud = CloudVoices.instance;
-    final selected = widget.controller.voiceName;
-    final inUse = cloud.byVoiceName(selected);
-    final keys = [for (final s in CloudService.values) if (cloud.hasKey(s)) s.label];
+    final keys = [
+      if (eleven.hasKey) 'ElevenLabs',
+      for (final s in CloudService.values)
+        if (cloud.hasKey(s)) s.label,
+    ];
     return Padding(
       padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, 0),
       child: SheetAction(
-        icon: Icons.cloud_outlined,
-        label: 'Cloud voices',
-        detail: inUse != null
-            ? 'Reading in ${inUse.name}, from ${inUse.service.label}'
-            : keys.isNotEmpty
-                ? 'On your own key: ${keys.join(', ')}'
-                : 'OpenAI, Google or Azure on your own key: a whole novel for a few dollars',
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => CloudVoicesScreen(
-              selected: selected,
-              language: _language,
-              onChoose: (name) {
-                if (!mounted) return;
-                setState(() => widget.controller.chooseVoice(name));
-              },
-            ),
-          ),
-        ),
+        icon: Icons.key_rounded,
+        label: 'Voices on your own key',
+        detail: keys.isEmpty
+            ? 'ElevenLabs, OpenAI, Google or Azure: add a key once, use its voices in any book'
+            : 'Keys: ${keys.join(', ')}. Their voices are listed above',
+        onTap: () => _openKeyScreen(VoiceKeysScreen(
+          selected: widget.controller.voiceName,
+          language: _language,
+          onChoose: _chooseKeyVoice,
+        )),
       ),
     );
   }

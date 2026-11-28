@@ -391,7 +391,7 @@ class CloudVoices extends ChangeNotifier {
     required String outDir,
   }) async {
     final v = byVoiceName(voiceName);
-    if (v == null) throw const CloudError('That cloud voice has no key now. Add it under Voices, Cloud voices.', passing: false);
+    if (v == null) throw const CloudError('That cloud voice has no key now. Add it in Settings, Voices on your own key.', passing: false);
     final key = _secrets?[_keyName(v.service)] ?? '';
     final variant = v.service == CloudService.openai
         ? '${openAiModel.id}|${openAiModel == OpenAiModel.mini ? openAiStyle : ''}'

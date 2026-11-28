@@ -3,6 +3,14 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 2.9.1 (2026-11-28)
+
+Voices on your own key, in one place.
+
+- **Settings → Listening → Voices on your own key:** ElevenLabs, OpenAI, Google Cloud and Microsoft Azure on one screen, each with its key and what it costs. A key is added once there.
+- **Every book's voice list shows those voices**, under *On your own key*, in the book's language: a tap uses one for that book, and *All … voices* shows the rest. A book in a language the phone has no voice for gets them too.
+- The foot of the voice list opens the same screen, instead of a row for each service.
+
 ## 2.9.0 (2026-11-28)
 
 Light themes done properly, four light scenes and a topographic map, more voices on your own key, a vocabulary to learn from, goals that tell you something, highlights from Kindle, Kobo, Play Books and Libby, and an icon in your theme's colours.

@@ -11,7 +11,7 @@ import 'ui.dart';
 /// Azure. One service at a time: its key, what it costs, and its voices in
 /// the book's language.
 class CloudVoicesScreen extends StatefulWidget {
-  const CloudVoicesScreen({super.key, this.selected, this.onChoose, this.language = 'en'});
+  const CloudVoicesScreen({super.key, this.selected, this.onChoose, this.language = 'en', this.service});
 
   /// The voice in use, to mark.
   final String? selected;
@@ -22,6 +22,9 @@ class CloudVoicesScreen extends StatefulWidget {
   /// The book's language ("en"): the voices shown first.
   final String language;
 
+  /// The service to open on (else the one in use, or the first with a key).
+  final CloudService? service;
+
   @override
   State<CloudVoicesScreen> createState() => _CloudVoicesScreenState();
 }
@@ -31,7 +34,8 @@ class _CloudVoicesScreenState extends State<CloudVoicesScreen> {
   final _key = TextEditingController();
   final _region = TextEditingController();
   late final _style = TextEditingController(text: _cloud.openAiStyle);
-  late CloudService _service = _cloud.byVoiceName(widget.selected)?.service ??
+  late CloudService _service = widget.service ??
+      _cloud.byVoiceName(widget.selected)?.service ??
       CloudService.values.where(_cloud.hasKey).firstOrNull ??
       CloudService.openai;
   bool _busy = false;

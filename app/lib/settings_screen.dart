@@ -38,6 +38,7 @@ import 'speech_service.dart';
 import 'sync.dart';
 import 'sync_screen.dart';
 import 'theme.dart';
+import 'voice_keys_screen.dart';
 import 'ui.dart';
 import 'updates.dart';
 import 'update_flow.dart';
@@ -603,6 +604,18 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                             MaterialPageRoute<void>(builder: (_) => const NeuralVoicesScreen()),
                           ),
                         ),
+                        // ElevenLabs, OpenAI, Google and Azure on the reader's
+                        // own keys: added once, here; each book then picks
+                        // from their voices.
+                        if (!playBuild)
+                          _Link(
+                            icon: Icons.key_rounded,
+                            title: 'Voices on your own key',
+                            subtitle: 'ElevenLabs, OpenAI, Google or Azure: add a key once, then pick its voices for any book',
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(builder: (_) => const VoiceKeysScreen()),
+                            ),
+                          ),
                         _Link(
                           icon: Icons.record_voice_over_outlined,
                           title: 'Voices',
