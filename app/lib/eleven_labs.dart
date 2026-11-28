@@ -270,7 +270,7 @@ class ElevenLabs extends ChangeNotifier {
   }) async {
     final key = _secrets?[_keyName];
     if (key == null || key.isEmpty) {
-      throw const ElevenError('No ElevenLabs key. Add yours under Voices, ElevenLabs.');
+      throw const ElevenError('No ElevenLabs key. Add yours in Settings, Voices on your own key.');
     }
     final m = model;
     final made = await _kept(voiceId, m.id, text) ??
