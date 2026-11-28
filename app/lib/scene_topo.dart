@@ -184,7 +184,8 @@ void _topoPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {require
       // Its right edge (where the lines are strongest) at the panel's.
       c.translate(r.right - _patchSize.width, r.top);
       c.clipRect(Rect.fromLTWH(_patchSize.width - w, 0, w, math.min(r.height, _patchSize.height)));
-      c.drawPicture(patch);
+      c.drawImageRect(patch, Offset.zero & Size(patch.width.toDouble(), patch.height.toDouble()), Offset.zero & _patchSize,
+          Paint()..filterQuality = FilterQuality.medium);
       c.restore();
     }
     _topoEdge(c, r, scene, corners, lit: lit);
@@ -194,13 +195,15 @@ void _topoPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {require
 /// The size of the kept patch of contours panels show a corner of.
 const _patchSize = Size(220, 420);
 
-final _patches = <Scene, ui.Picture>{};
+final _patches = <Scene, ui.Image>{};
 
-/// A patch of contour lines, fading out toward its left, made once.
-ui.Picture _contourPatch(Scene scene) => _patches[scene] ??= () {
+/// A patch of contour lines, fading out toward its left, made once as an
+/// image (2.5 pixels to a point): kept as a picture, its thousands of line
+/// pieces were drawn again in every panel on every frame of a scroll.
+ui.Image _contourPatch(Scene scene) => _patches[scene] ??= () {
       final t = _topoOf(scene);
       final recorder = ui.PictureRecorder();
-      final c = Canvas(recorder);
+      final c = Canvas(recorder)..scale(2.5);
       final rect = Offset.zero & _patchSize;
       final (thin, bold) = _contours(rect, seed: 23, cell: 6, levels: 18, scale: 120);
       final shader = ui.Gradient.linear(rect.centerRight, rect.centerLeft, [t.line.withValues(alpha: 0.14), t.line.withValues(alpha: 0)]);
@@ -212,7 +215,12 @@ ui.Picture _contourPatch(Scene scene) => _patches[scene] ??= () {
         ..shader = shader
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.1);
-      return recorder.endRecording();
+      final picture = recorder.endRecording();
+      try {
+        return picture.toImageSync((_patchSize.width * 2.5).round(), (_patchSize.height * 2.5).round());
+      } finally {
+        picture.dispose();
+      }
     }();
 
 void _topoButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radius) {
