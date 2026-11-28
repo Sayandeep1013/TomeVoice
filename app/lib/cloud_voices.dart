@@ -318,7 +318,13 @@ class CloudVoices extends ChangeNotifier {
   Future<List<CloudVoice>?> _list(CloudService s, String key, String region) async {
     switch (s) {
       case CloudService.openai:
-        await _send(s, 'GET', Uri.parse('$openAiApi/v1/models/tts-1'), headers: {'Authorization': 'Bearer $key'});
+        try {
+          await _send(s, 'GET', Uri.parse('$openAiApi/v1/models/tts-1'), headers: {'Authorization': 'Bearer $key'});
+        } on CloudError catch (e) {
+          // A key restricted to speech may not list models: it is a key
+          // all the same (a wrong one is 401).
+          if (e.status != 403) rethrow;
+        }
         return null;
       case CloudService.google:
         final body = jsonDecode(utf8.decode(await _send(s, 'GET', Uri.parse('$googleApi/v1/voices?key=${Uri.encodeQueryComponent(key)}'))));

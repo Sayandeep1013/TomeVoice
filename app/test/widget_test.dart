@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart' show PipelineSettings;
 import 'package:tomevoice_document/tomevoice_document.dart';
+import 'package:tomevoice_spike/vocabulary.dart';
 import 'package:tomevoice_spike/app_update.dart';
 import 'package:tomevoice_spike/book_card.dart';
 import 'package:tomevoice_spike/book_screen.dart';
@@ -57,6 +58,7 @@ void main() {
   setUp(() {
     // Bookmarks and quotes live in one store for the app: none carried over.
     MarkStore.instance.reset();
+    VocabularyStore.instance.reset();
     _tmp = Directory.systemTemp.createTempSync('tomevoice_test');
     _calls.clear();
     ListeningPrefs.reset();

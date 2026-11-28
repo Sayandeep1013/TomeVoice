@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
+import 'package:tomevoice_spike/vocabulary.dart';
 import 'package:tomevoice_spike/book_card.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/main.dart';
@@ -38,6 +39,7 @@ void main() {
 
   setUp(() {
     MarkStore.instance.reset();
+    VocabularyStore.instance.reset();
     _tmp = Directory.systemTemp.createTempSync('tv_scene');
     ListeningPrefs.reset();
     SpeechService.resetQueue();
@@ -289,7 +291,16 @@ void main() {
             await tester.tap(find.byTooltip('Menu').first);
             await tester.pumpAndSettle();
           }
-          // On a small phone the drawer's lower rows are scrolled to.
+          // On a small phone the drawer's lower rows are scrolled to (and
+          // only built once near: the drawer is a list).
+          final inDrawer = find.descendant(of: find.byType(Drawer), matching: find.text(place));
+          if (inDrawer.evaluate().isEmpty) {
+            await tester.scrollUntilVisible(
+              inDrawer,
+              120,
+              scrollable: find.descendant(of: find.byType(Drawer), matching: find.byType(Scrollable)).first,
+            );
+          }
           await tester.ensureVisible(find.text(place).last);
           await tester.pumpAndSettle();
           await tester.tap(find.text(place).last);

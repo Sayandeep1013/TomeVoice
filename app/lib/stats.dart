@@ -58,6 +58,23 @@ DateTime dayOf(String key) {
   return DateTime(p[0], p[1], p[2]);
 }
 
+/// How much a day finishes a book by a day: [wordsLeft] at [wpm] words a
+/// minute, shared over the days from today to [by], both counted. Null
+/// once [by] has passed.
+({int minutesPerDay, int daysLeft, int minutesLeft})? finishPlan({
+  required int wordsLeft,
+  required DateTime by,
+  required double wpm,
+  DateTime? now,
+}) {
+  final today = dayOf(dayKey(now ?? DateTime.now()));
+  final last = DateTime(by.year, by.month, by.day);
+  final days = last.difference(today).inHours ~/ 24 + 1;
+  if (days < 1) return null;
+  final minutes = (wordsLeft / wpm).ceil();
+  return (minutesPerDay: (minutes / days).ceil(), daysLeft: days, minutesLeft: minutes);
+}
+
 /// Reading habits, kept by day in `stats.json` at the library root (so a
 /// backup carries them, and the streak widget can read them).
 class StatsStore {
@@ -76,6 +93,14 @@ class StatsStore {
   /// Bumped when the numbers are saved.
   final changes = ValueNotifier<int>(0);
 
+  /// Bumped the moment today's reading reaches the goal (the reader says
+  /// so, once a day).
+  final goalMet = ValueNotifier<int>(0);
+
+  /// Books with a day to finish by: book id -> "2026-12-15" (see
+  /// [finishPlan]). In stats.json, which backups carry.
+  final Map<String, String> finishBy = {};
+
   final Map<String, DayStats> _days = {};
   File? _file;
   Timer? _saveTimer;
@@ -92,6 +117,7 @@ class StatsStore {
     _saveTimer = null;
     _file = null;
     _days.clear();
+    finishBy.clear();
     goal = const Duration(minutes: 5);
   }
 
@@ -107,6 +133,14 @@ class StatsStore {
         // offer goals this one does not.
         final minutes = raw['goalMinutes'];
         if (minutes is num && minutes >= 1 && minutes <= 240) goal = Duration(minutes: minutes.round());
+        final by = raw['finishBy'];
+        if (by is Map) {
+          for (final e in by.entries) {
+            if (e.key is String && e.value is String && RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(e.value as String)) {
+              finishBy[e.key as String] = e.value as String;
+            }
+          }
+        }
         changes.value++;
       }
     } on Object {
@@ -122,14 +156,46 @@ class StatsStore {
   void addTime(String bookId, Duration d, {required bool listening, DateTime? now}) {
     if (d <= Duration.zero) return;
     final day = today(now);
+    final before = day.totalMs;
     if (listening) {
       day.listenMs += d.inMilliseconds;
     } else {
       day.readMs += d.inMilliseconds;
     }
     day.books[bookId] = (day.books[bookId] ?? 0) + d.inMilliseconds;
+    if (before < goal.inMilliseconds && day.totalMs >= goal.inMilliseconds) goalMet.value++;
     _scheduleSave();
   }
+
+  /// Finish [bookId] by [day] (its date counts), or no longer (null).
+  Future<void> setFinishBy(String bookId, DateTime? day) async {
+    if (day == null) {
+      if (finishBy.remove(bookId) == null) return;
+    } else {
+      String two(int n) => n.toString().padLeft(2, '0');
+      finishBy[bookId] = '${day.year}-${two(day.month)}-${two(day.day)}';
+    }
+    await flush();
+  }
+
+  /// The reader's own pace: words heard a minute of listening over the
+  /// last 30 days, once there is half an hour of it to go by.
+  double? wordsPerMinute([DateTime? now]) {
+    final today = dayOf(dayKey(now ?? DateTime.now()));
+    var words = 0, ms = 0;
+    for (var i = 0; i < 30; i++) {
+      final d = _days[_key(today.subtract(Duration(days: i)))];
+      if (d == null || d.listenMs == 0) continue;
+      words += d.words;
+      ms += d.listenMs;
+    }
+    if (ms < const Duration(minutes: 30).inMilliseconds || words == 0) return null;
+    final wpm = words / (ms / 60000);
+    return wpm.clamp(60, 600).toDouble();
+  }
+
+  /// Minutes on [bookId] today.
+  int minutesToday(String bookId, [DateTime? now]) => ((_days[dayKey(now ?? DateTime.now())]?.books[bookId] ?? 0) / 60000).floor();
 
   void addWords(int n, {DateTime? now}) {
     if (n <= 0) return;
@@ -171,6 +237,7 @@ class StatsStore {
     try {
       await writeSafely(_file, jsonEncode({
         'goalMinutes': goal.inMinutes,
+        if (finishBy.isNotEmpty) 'finishBy': finishBy,
         'days': {for (final e in _days.entries) e.key: e.value.toJson()},
       }));
       onSaved?.call();

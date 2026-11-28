@@ -524,10 +524,21 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// auto-scroll part below).
   late final _auto = AutoScroll(() => _prefs);
 
+  /// Today's reading reached the goal while this page was open: said once,
+  /// with the streak it makes.
+  void _goalMet() {
+    if (!mounted) return;
+    final stats = StatsStore.instance;
+    final streak = stats.streak();
+    _snack(
+        "Today's ${stats.goal.inMinutes} minutes are done${streak > 1 ? ': $streak days in a row' : ''}.");
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    StatsStore.instance.goalMet.addListener(_goalMet);
     // The place and the voice: this book's reading in the background taken
     // back if it reads on there, else a voice of its own.
     _reader = ReaderController(
@@ -936,6 +947,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     // would ask this page to be built again.
     _watched?.layouts.removeListener(_voiceMoved);
     BackgroundReading.current.removeListener(_voiceMoved);
+    StatsStore.instance.goalMet.removeListener(_goalMet);
     _pdfTap?.cancel();
     _aiLater?.cancel();
     final open = _nowPlaying;
@@ -1699,9 +1711,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         await Clipboard.setData(ClipboardData(text: sentence));
         _snack('Copied.');
       case 'lookup':
-        // Kept to learn, with where it was met (vocabulary.dart).
-        await _keepWord(unit, word, sentence);
-        if (!await _svc.lookUp(word) && mounted) _snack('No app on this phone looks words up. Kept in Vocabulary.');
+        // Kept to learn, with where it was met (vocabulary.dart), as the
+        // dictionary opens: it does not wait on the file.
+        unawaited(_keepWord(unit, word, sentence));
+        if (!await _svc.lookUp(word) && mounted) _snack('No app on this phone looks words up. A dictionary app can.');
       case 'vocab':
         final kept = await _keepWord(unit, word, sentence);
         if (kept != null && mounted) {
