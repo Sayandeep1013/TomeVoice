@@ -1932,12 +1932,18 @@ void main() {
     testWidgets('tapping a book shows its chapters, voice and Play', (tester) async {
       await pumpShelf(tester);
       await tester.tap(find.text('alpha'));
-      await settleIo(tester, until: () => find.text('Chapter 2').evaluate().isNotEmpty);
+      await settleIo(tester, until: () => find.text('Listen').evaluate().isNotEmpty);
 
       expect(find.byType(BookScreen), findsOneWidget);
       expect(find.text('Listen'), findsOneWidget);
       expect(find.text('Read'), findsOneWidget);
       expect(find.text('VOICE FOR THIS BOOK'), findsOneWidget);
+      // The chapters are lower down the page, built as they are scrolled to
+      // (and once the book has been read in).
+      for (var i = 0; i < 20 && find.text('Chapter 2').evaluate().isEmpty; i++) {
+        await tester.drag(find.byType(BookScreen), const Offset(0, -150));
+        await settleIo(tester, until: () => find.text('Chapter 2').evaluate().isNotEmpty);
+      }
       expect(find.text('Chapters'), findsOneWidget);
       expect(find.text('Chapter 1'), findsOneWidget);
 

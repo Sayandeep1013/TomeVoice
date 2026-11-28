@@ -118,8 +118,15 @@ class _VocabularyScreenState extends State<VocabularyScreen> {
     if (due > 0) {
       line = due == 1 ? 'One word is due for review.' : '$due words are due for review.';
     } else if (next != null) {
-      final days = next.toLocal().difference(DateTime.now()).inHours / 24;
-      line = days < 1 ? 'All reviewed. More are due later today.' : 'All reviewed. The next are due in ${days.ceil()} ${days.ceil() == 1 ? 'day' : 'days'}.';
+      // Calendar days: a word due this time tomorrow is due tomorrow.
+      final now = DateTime.now();
+      final at = next.toLocal();
+      final days = (DateTime(at.year, at.month, at.day).difference(DateTime(now.year, now.month, now.day)).inHours / 24).round();
+      line = days <= 0
+          ? 'All reviewed. More are due later today.'
+          : days == 1
+              ? 'All reviewed. The next are due tomorrow.'
+              : 'All reviewed. The next are due in $days days.';
     } else {
       line = learning == 0 ? 'Every word here is learnt.' : 'All reviewed.';
     }
