@@ -642,6 +642,11 @@ class MainActivity : FlutterActivity() {
                 // The wallpaper's colours, for a theme that follows them
                 // (Settings > Appearance). Null before Android 12.
                 "systemColours" -> result.success(systemColours())
+                "setLauncherIcon" -> {
+                    LauncherIcon.want(call.argument<String>("key"))
+                    result.success(null)
+                }
+                "launcherIcon" -> result.success(LauncherIcon.current(this))
                 "pickFolder" -> {
                     if (folderResult != null) {
                         result.error("BUSY", "A folder is already being chosen", null)
@@ -1444,7 +1449,15 @@ class MainActivity : FlutterActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
+    // The icon the theme wants goes on as the reader leaves (LauncherIcon.kt):
+    // Home or Recents, not a picker or a share sheet of the app's own.
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        LauncherIcon.apply(applicationContext)
+    }
+
     override fun onDestroy() {
+        if (isFinishing) LauncherIcon.apply(applicationContext)
         stopSample()
         dictation?.close()
         dictation = null

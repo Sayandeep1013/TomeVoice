@@ -66,6 +66,11 @@ copied in. The generated project cannot know about any of this:
     3.98.4 ported to Java, LGPL 2.1 or later (GPL-3.0 compatible), from Maven
     Central. Android has no MP3 encoder of its own.
 
+15. **The icon follows the theme** (Settings > Appearance): the launcher entry
+    is an activity-alias of MainActivity, one per theme icon that
+    tools/brand/make_theme_icons.py wrote (mipmap-anydpi-v26/ic_launcher_t_*),
+    each off but the classic one; LauncherIcon.kt turns one on.
+
 Idempotent: running it twice changes nothing the second time.
 """
 
@@ -357,6 +362,28 @@ def _open_activity() -> str:
 """
 
 
+# The launcher entries (15 above). MainActivity loses its own LAUNCHER filter
+# and each alias carries one; only .IconClassic starts on, so a fresh install
+# shows the classic icon until the reader's theme picks another.
+def _icon_aliases(res: Path) -> str:
+    keys = sorted(f.stem[len("ic_launcher_t_"):] for f in (res / "mipmap-anydpi-v26").glob("ic_launcher_t_*.xml"))
+    def alias(name: str, icon: str, enabled: bool, round_: str = "") -> str:
+        return f"""        <activity-alias
+            android:name=".{name}"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/{icon}"
+            android:roundIcon="@mipmap/{round_ or icon}"
+            android:enabled="{'true' if enabled else 'false'}"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+"""
+    return alias("IconClassic", "ic_launcher", True, "ic_launcher_round") + "".join(alias(f"Icon_{k}", f"ic_launcher_t_{k}", False) for k in keys)
+
+
 # What the Google Play build (TV_STORE=play) may not have: installing other
 # APKs (the GitHub self-updater's) and asking to be left out of battery
 # saving (private/play-store-report-2026-11-20.html, section 1).
@@ -424,6 +451,17 @@ def patch_manifest(path: Path, label: str = APP_LABEL, play: bool = False) -> st
     if ".ShareProvider" not in text:
         text = text.replace("</application>", PROVIDER + "    </application>", 1)
         notes.append("share provider")
+
+    if ".IconClassic" not in text:
+        launcher = re.compile(
+            r"[ \t]*<intent-filter>\s*<action android:name=\"android\.intent\.action\.MAIN\"\s*/>\s*"
+            r"<category android:name=\"android\.intent\.category\.LAUNCHER\"\s*/>\s*</intent-filter>\n?"
+        )
+        text, n = launcher.subn("", text, count=1)
+        if n != 1:
+            raise SystemExit("manifest: MainActivity's launcher filter not found")
+        text = text.replace("</application>", _icon_aliases(path.parents[0] / "res") + "    </application>", 1)
+        notes.append("theme icons")
 
     if ".OpenActivity" not in text:
         text = text.replace("</application>", _open_activity() + "    </application>", 1)

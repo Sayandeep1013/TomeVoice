@@ -480,6 +480,16 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           padding: EdgeInsets.zero,
                           onChanged: (v) => _change(() => _prefs.animations = v),
                         ),
+                        const SizedBox(height: Gap.l),
+                        SwitchRow(
+                          title: 'Icon follows the theme',
+                          subtitle: _prefs.iconFollowsTheme
+                              ? "The app's icon takes this theme's colours, changing as you leave the app"
+                              : 'Off: the classic icon',
+                          value: _prefs.iconFollowsTheme,
+                          padding: EdgeInsets.zero,
+                          onChanged: (v) => _change(() => _prefs.iconFollowsTheme = v),
+                        ),
                         if (Skin.sceneOf(context) != null) ...[
                           const SizedBox(height: Gap.l),
                           SwitchRow(

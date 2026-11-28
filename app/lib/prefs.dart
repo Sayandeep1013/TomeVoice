@@ -89,6 +89,7 @@ class ListeningPrefs {
     this.sort = LibrarySort.recent,
     this.bookColours = true,
     this.animations = true,
+    this.iconFollowsTheme = true,
     this.sceneOnPage = false,
     this.naturalVoices,
     this.exportFolder,
@@ -452,6 +453,10 @@ class ListeningPrefs {
   /// animations".
   bool animations;
 
+  /// The launcher icon in the theme's colours (LauncherIcon), changed as
+  /// the app is left; off: the classic icon.
+  bool iconFollowsTheme;
+
   /// In a scene theme, its painting behind the page being read (under a
   /// dark wash, so the words read), with the app's own page tone; off:
   /// the page plain, as it always was.
@@ -641,6 +646,7 @@ class ListeningPrefs {
         'sort': sort.name,
         'bookColours': bookColours,
         if (!animations) 'animations': false,
+        if (!iconFollowsTheme) 'iconFollowsTheme': false,
         if (sceneOnPage) 'sceneOnPage': true,
         if (naturalVoices != null) 'naturalVoices': naturalVoices,
         if (exportFolder != null) 'exportFolder': exportFolder!.toJson(),
@@ -770,6 +776,7 @@ class ListeningPrefs {
             LibrarySort.recent,
         bookColours: json['bookColours'] != false,
         animations: json['animations'] != false,
+        iconFollowsTheme: json['iconFollowsTheme'] != false,
         sceneOnPage: json['sceneOnPage'] == true,
         naturalVoices: json['naturalVoices'] as bool?,
         exportFolder: PickedFolder.fromJson(json['exportFolder']),
