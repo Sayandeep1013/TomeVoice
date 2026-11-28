@@ -350,8 +350,10 @@ jobs:
       # Two APKs, one per CPU kind, built separately rather than with
       # --split-per-abi, which renumbers version codes: the 64-bit one is
       # what nearly every phone takes; the 32-bit one is for older and
-      # Android Go phones. The test app is 64-bit only. Each is the matrix
-      # leg of its own (abi), so the two build side by side.
+      # Android Go phones. The test app is universal: a phone can advertise
+      # a 64-bit chip yet run a 32-bit Android userspace, where an arm64-only
+      # APK is rejected as incompatible. Each release ABI is its own matrix
+      # leg, so the two build side by side.
       - name: Build release APK (32-bit phones)
         if: matrix.abi == 'arm'
         working-directory: app
@@ -367,10 +369,16 @@ jobs:
         working-directory: app
         env:
           TV_KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
-          TV_ABIS: arm64-v8a
+          # Universal test APK: include both ABIs so the device's running
+          # Android system, not its processor, decides which code it takes.
+          TV_ABIS: ${{ inputs.variant == 'test' && 'arm64-v8a,armeabi-v7a' || 'arm64-v8a' }}
         run: |
-          flutter build apk --release --no-pub --target-platform android-arm64 --dart-define=TV_STORE=$TV_STORE --dart-define=TV_TEST=$TV_TEST
-          # Each APK holds one CPU's native code, compressed.
+          if [ "${{ inputs.variant }}" = "test" ]; then
+            flutter build apk --release --no-pub --dart-define=TV_STORE=$TV_STORE --dart-define=TV_TEST=$TV_TEST
+          else
+            flutter build apk --release --no-pub --target-platform android-arm64 --dart-define=TV_STORE=$TV_STORE --dart-define=TV_TEST=$TV_TEST
+          fi
+          # Show which CPU code this APK actually carries.
           unzip -l build/app/outputs/flutter-apk/app-release.apk | grep -E "lib/" | awk '{print $4}' | cut -d/ -f2 | sort -u
           ls -la build/app/outputs/flutter-apk/app-release.apk
 
