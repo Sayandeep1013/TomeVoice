@@ -65,18 +65,6 @@ SCENES = {
         'licences': {'Public domain'},
         'across': 0.25, 'trim': 0.01, 'brightness': 0.68, 'contrast': 1.12, 'colour': 0.3, 'tint': (0.82, 0.92, 1.1),
     },
-    'gothic': {
-        'file': 'Paul Vredeman de Vries - Interior of a Gothic Cathedral.jpg',
-        'credit': 'Paul Vredeman de Vries, "Interior of a Gothic Cathedral". Public domain. Cropped and colour-graded.',
-        'licences': {'Public domain'},
-        'across': 0.5, 'trim': 0.01, 'brightness': 0.58, 'contrast': 1.16, 'colour': 0.62, 'tint': (0.94, 0.86, 0.74),
-    },
-    'classicRenaissance': {
-        'file': 'Interior of a Church Built in the Late-Renaissance Style (SM 862).png',
-        'credit': 'Anthonie Palamedesz., "Interior of a Church Built in the Late-Renaissance Style" (SM 862). Public domain mark. Cropped and colour-graded.',
-        'licences': {'PDM-owner', 'Public domain'},
-        'across': 0.5, 'trim': 0.01, 'brightness': 0.74, 'contrast': 1.06, 'colour': 0.58, 'tint': (1.0, 0.92, 0.76),
-    },
 }
 
 

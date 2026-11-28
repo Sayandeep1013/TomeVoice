@@ -26,13 +26,9 @@ enum Scene {
   silverWitch('Silver witch', 'Moonlight, mist and silver', kin: Scene.forest, hue: 215, saturation: 0.32),
   // Its own panels (a hull's plates, cut at two corners), turned to gold.
   solar('Space · solar', 'The sun, gold and the dark', hue: 38, saturation: 1.1),
-  dungeon('Dungeon', 'Torchlit stone, rust and bones'),
-  // Contributor scenes: their own paintings and icon work, built on the
-  // dungeon's stone panels. The Renaissance picture is deliberately still.
-  gothic('Gothic cathedral', 'Pointed arches, aged gold and candlelight', kin: Scene.dungeon, hue: 18, saturation: 0.78),
-  classicRenaissance('Classic Renaissance', 'Fresco arches, laurel and still stone', kin: Scene.dungeon, hue: 44, saturation: 0.58, still: true);
+  dungeon('Dungeon', 'Torchlit stone, rust and bones');
 
-  const Scene(this.label, this.note, {Scene? kin, this.hue, this.saturation = 1, this.still = false}) : _kin = kin;
+  const Scene(this.label, this.note, {Scene? kin, this.hue, this.saturation = 1}) : _kin = kin;
 
   final String label;
 
@@ -49,10 +45,6 @@ enum Scene {
   /// how much of their colour stays.
   final double? hue;
   final double saturation;
-
-  /// A still place has no life layer and no timer behind the screens: its
-  /// painting is meant to be looked at, not to flicker.
-  final bool still;
 
   /// Its corners: worn stone and wood are rounded, a hull's (the solar scene's) are sharp.
   double get radius => switch (kin) {
@@ -126,14 +118,7 @@ ui.Image? sceneBackdrop(Scene scene, Size size, double dpr) {
 // the forest's trees and vines looked stiff up close; a painting does not.
 
 /// Scenes with a painted backdrop.
-const _withArt = {
-  Scene.forest,
-  Scene.silverWitch,
-  Scene.solar,
-  Scene.dungeon,
-  Scene.gothic,
-  Scene.classicRenaissance,
-};
+const _withArt = {Scene.forest, Scene.silverWitch, Scene.solar, Scene.dungeon};
 
 /// Whether painted backdrops are loaded (off under `flutter test`, which
 /// keeps to the drawn ones).
@@ -143,19 +128,9 @@ bool sceneArt = !Platform.environment.containsKey('FLUTTER_TEST');
 final _art = <Scene, ui.Image>{};
 final _artLoading = <Scene>{};
 final _artFailed = <Scene>{};
-final _artError = <Scene, String>{};
 
 /// Bumped each time a scene's painting is ready: what shows it draws again.
 final sceneArtReady = ValueNotifier<int>(0);
-
-/// Whether [scene]'s painting has decoded. The opt-in preview tests wait on
-/// this instead of a fixed delay, so a slow decode cannot make a blank image.
-@visibleForTesting
-bool sceneArtLoaded(Scene scene) => _art.containsKey(scene);
-
-/// Why [scene]'s painting did not decode, for the opt-in preview tests.
-@visibleForTesting
-String? sceneArtError(Scene scene) => _artError[scene];
 
 /// Whether [scene] has a painting not loaded yet.
 bool _artPending(Scene scene) =>
@@ -174,16 +149,14 @@ void _loadArt(Scene scene) {
       final frame = await codec.getNextFrame();
       codec.dispose();
       _art[scene] = frame.image;
-      _artError.remove(scene);
       // Backdrops drawn before it came are drawn again with it.
       for (final k in [..._drawn.keys.where((k) => k.startsWith('${scene.name}:'))]) {
         _drawn.remove(k)!.dispose();
       }
       sceneArtReady.value++;
-    } on Object catch (e) {
+    } on Object {
       // Drawn by hand, as before.
       _artFailed.add(scene);
-      _artError[scene] = '$e';
       sceneArtReady.value++;
     } finally {
       _artLoading.remove(scene);
@@ -1504,12 +1477,6 @@ class SceneLife extends StatefulWidget {
 @visibleForTesting
 bool sceneLifeMoves = !Platform.environment.containsKey('FLUTTER_TEST');
 
-/// Whether [scene]'s life is allowed to move now. A still scene never does,
-/// even when the app's animations and this test gate are both on.
-@visibleForTesting
-bool sceneLifeMovesFor(Scene scene) =>
-    sceneLifeMoves && !scene.still && !sceneBatterySaver.value;
-
 /// Android's battery saver is on: the scenes' life stands still, as when
 /// the phone removes animations. Read as the app opens and each time it
 /// comes back to the front.
@@ -1549,8 +1516,8 @@ class _SceneLifeState extends State<SceneLife> with WidgetsBindingObserver {
 
   bool get _visible {
     final app = WidgetsBinding.instance.lifecycleState;
-    final moving = sceneLifeMovesFor(widget.scene);
-    return moving && !_noMotion && _current && _enabled && (app == null || app == AppLifecycleState.resumed);
+    final still = !sceneLifeMoves || _noMotion || sceneBatterySaver.value;
+    return !still && _current && _enabled && (app == null || app == AppLifecycleState.resumed);
   }
 
   @override
@@ -1558,7 +1525,7 @@ class _SceneLifeState extends State<SceneLife> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     sceneBatterySaver.addListener(_sync);
-    if (sceneLifeMovesFor(widget.scene)) unawaited(_askSaver());
+    if (sceneLifeMoves) unawaited(_askSaver());
   }
 
   @override
@@ -1572,7 +1539,7 @@ class _SceneLifeState extends State<SceneLife> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && sceneLifeMovesFor(widget.scene)) unawaited(_askSaver());
+    if (state == AppLifecycleState.resumed && sceneLifeMoves) unawaited(_askSaver());
     _sync();
   }
 
@@ -1617,7 +1584,7 @@ class _SceneLifeState extends State<SceneLife> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.scene.still || (MediaQuery.maybeDisableAnimationsOf(context) ?? false)) return const SizedBox.shrink();
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) return const SizedBox.shrink();
     return IgnorePointer(
       child: ExcludeSemantics(
         child: RepaintBoundary(
@@ -1653,12 +1620,6 @@ class LifePainter extends CustomPainter {
         _silverWitchLife(canvas, s, t);
       case Scene.solar:
         _solarLife(canvas, s, t);
-      case Scene.gothic:
-        // Candlelight in the nave: the dungeon's flame, in gold and oxblood.
-        _dungeonLife(canvas, s, t);
-      case Scene.classicRenaissance:
-        // No life at all: this scene is a still picture.
-        break;
     }
     canvas.restore();
   }
@@ -2011,50 +1972,6 @@ class _EmptyPainter extends CustomPainter {
   @override
   void paint(Canvas c, Size s) {
     final m = Offset(s.width / 2, s.height / 2);
-    switch (scene) {
-      case Scene.gothic:
-        final arch = Path()
-          ..moveTo(m.dx - s.width * 0.34, m.dy + s.height * 0.34)
-          ..lineTo(m.dx - s.width * 0.34, m.dy - s.height * 0.02)
-          ..quadraticBezierTo(m.dx - s.width * 0.34, m.dy - s.height * 0.36, m.dx, m.dy - s.height * 0.4)
-          ..quadraticBezierTo(m.dx + s.width * 0.34, m.dy - s.height * 0.36, m.dx + s.width * 0.34, m.dy - s.height * 0.02)
-          ..lineTo(m.dx + s.width * 0.34, m.dy + s.height * 0.34)
-          ..close();
-        c.drawPath(arch, _fill(_k(scene, const Color(0xFF130C08))));
-        c.drawPath(arch, _stroke(_k(scene, const Color(0xFFC9A85A)), 2.2)..strokeJoin = StrokeJoin.round);
-        final rose = m + Offset(0, -s.height * 0.13);
-        _light(c, rose, s.width * 0.24, _k(scene, const Color(0xFFD9A24A)).withValues(alpha: 0.28));
-        c.drawCircle(rose, s.width * 0.13, Paint()..shader = ui.Gradient.radial(rose - Offset(s.width * 0.04, s.width * 0.04), s.width * 0.16,
-            [_k(scene, const Color(0xFFF0D796)), _k(scene, const Color(0xFF9A5A22)), _k(scene, const Color(0xFF241007))], const [0, 0.55, 1]));
-        c.drawLine(rose + Offset(0, -s.width * 0.11), rose + Offset(0, s.width * 0.11),
-            _stroke(_k(scene, const Color(0xFF2A1508)).withValues(alpha: 0.7), 1.4));
-        c.drawLine(rose + Offset(-s.width * 0.11, 0), rose + Offset(s.width * 0.11, 0),
-            _stroke(_k(scene, const Color(0xFF2A1508)).withValues(alpha: 0.7), 1.4));
-        return;
-      case Scene.classicRenaissance:
-        final r = math.Random(5);
-        for (var i = 0; i < 12; i++) {
-          final a = i / 12 * math.pi * 2 - math.pi / 2;
-          leafAt(c, m + Offset(math.cos(a) * s.width * 0.33, math.sin(a) * s.height * 0.33),
-              s.width * 0.18, a + math.pi / 2, r, scene: scene);
-        }
-        c.drawCircle(m, s.width * 0.23, _stroke(_k(scene, const Color(0xFFB08A46)), 1.8));
-        final parchment = _k(scene, const Color(0xFFE8D8AE));
-        for (final side in [-1.0, 1.0]) {
-          final edge = m + Offset(side * s.width * 0.2, 0);
-          final page = Path()
-            ..moveTo(m.dx, m.dy + 2)
-            ..quadraticBezierTo(m.dx + side * s.width * 0.1, m.dy - 8, edge.dx, m.dy + 2)
-            ..lineTo(edge.dx, m.dy + s.height * 0.16)
-            ..quadraticBezierTo(m.dx + side * s.width * 0.1, m.dy + s.height * 0.12, m.dx, m.dy + s.height * 0.17)
-            ..close();
-          c.drawPath(page, _fill(parchment));
-          c.drawPath(page, _stroke(_k(scene, const Color(0xFF8C6534)), 1.2));
-        }
-        return;
-      default:
-        break;
-    }
     switch (scene.kin) {
       case Scene.dungeon:
         // A candle stub burning on a skull.
@@ -2143,54 +2060,6 @@ class _OrnamentPainter extends CustomPainter {
   @override
   void paint(Canvas c, Size s) {
     final r = math.Random(foot ? 2 : 1);
-    switch (scene) {
-      case Scene.gothic:
-        if (!foot) {
-          final m = Offset(s.width / 2, s.height / 2);
-          final arch = Path()
-            ..moveTo(m.dx - s.width * 0.3, m.dy + s.height * 0.3)
-            ..lineTo(m.dx - s.width * 0.3, m.dy - s.height * 0.02)
-            ..quadraticBezierTo(m.dx - s.width * 0.3, m.dy - s.height * 0.32, m.dx, m.dy - s.height * 0.36)
-            ..quadraticBezierTo(m.dx + s.width * 0.3, m.dy - s.height * 0.32, m.dx + s.width * 0.3, m.dy - s.height * 0.02)
-            ..lineTo(m.dx + s.width * 0.3, m.dy + s.height * 0.3)
-            ..close();
-          c.drawPath(arch, _stroke(_k(scene, const Color(0xFFC9A85A)), 2.4)..strokeJoin = StrokeJoin.round);
-          c.drawCircle(m + Offset(0, -s.height * 0.09), s.width * 0.1, _stroke(_k(scene, const Color(0xFF9A5A22)), 1.6));
-          c.drawLine(m + Offset(0, -s.height * 0.2), m + Offset(0, s.height * 0.3),
-              _stroke(_k(scene, const Color(0xFF6E4A1E)), 1.4));
-        } else {
-          for (var i = -1; i <= 1; i++) {
-            final x = s.width / 2 + i * s.width * 0.25;
-            final p = Path()
-              ..moveTo(x - s.width * 0.09, s.height * 0.82)
-              ..lineTo(x - s.width * 0.09, s.height * 0.44)
-              ..quadraticBezierTo(x, s.height * 0.22, x + s.width * 0.09, s.height * 0.44)
-              ..lineTo(x + s.width * 0.09, s.height * 0.82);
-            c.drawPath(p, _stroke(_k(scene, const Color(0xFFB08A46)), 2)..strokeJoin = StrokeJoin.round);
-          }
-        }
-        return;
-      case Scene.classicRenaissance:
-        final m = Offset(s.width / 2, s.height / 2);
-        if (!foot) {
-          for (var i = 0; i < 10; i++) {
-            final a = i / 5 * math.pi + math.pi * 0.05;
-            leafAt(c, m + Offset(math.cos(a) * s.width * 0.3, math.sin(a) * s.height * 0.3),
-                s.width * 0.17, a + math.pi / 2, r, scene: scene);
-          }
-          c.drawCircle(m, s.width * 0.17, _stroke(_k(scene, const Color(0xFFB08A46)), 1.8));
-          c.drawRect(Rect.fromCenter(center: m, width: s.width * 0.13, height: s.height * 0.16),
-              _fill(_k(scene, const Color(0xFFE8D8AE))));
-        } else {
-          for (var i = 0; i < 7; i++) {
-            final x = s.width * (0.12 + i * 0.13);
-            leafAt(c, Offset(x, s.height * 0.7), s.width * 0.16, i.isEven ? -0.5 : 0.5, r, scene: scene);
-          }
-        }
-        return;
-      default:
-        break;
-    }
     switch ((scene.kin, foot)) {
       case (Scene.dungeon, false):
         // Crossed bones behind a skull.
@@ -2323,28 +2192,6 @@ class _DividerPainter extends CustomPainter {
   @override
   void paint(Canvas c, Size s) {
     final y = s.height / 2;
-    switch (scene) {
-      case Scene.gothic:
-        c.drawLine(Offset(0, y), Offset(s.width, y), _stroke(_k(scene, const Color(0xFF3A2412)), 1));
-        for (var x = 14.0; x < s.width - 10; x += 30) {
-          final arch = Path()
-            ..moveTo(x - 7, y + 4)
-            ..lineTo(x - 7, y - 1)
-            ..quadraticBezierTo(x, y - 8, x + 7, y - 1)
-            ..lineTo(x + 7, y + 4);
-          c.drawPath(arch, _stroke(_k(scene, const Color(0xFFB08A46)).withValues(alpha: 0.8), 1.2));
-        }
-        return;
-      case Scene.classicRenaissance:
-        c.drawLine(Offset(0, y), Offset(s.width, y), _stroke(_k(scene, const Color(0xFF6E5228)).withValues(alpha: 0.7), 1));
-        final r = math.Random(6);
-        for (var x = 12.0; x < s.width - 8; x += 34) {
-          leafAt(c, Offset(x, y), 9, (x ~/ 34).isEven ? -0.35 : 0.35, r, scene: scene);
-        }
-        return;
-      default:
-        break;
-    }
     switch (scene.kin) {
       case Scene.dungeon:
         final rune = _stroke(_k(scene, const Color(0xFF8A6A4A)).withValues(alpha: 0.55), 1.1);

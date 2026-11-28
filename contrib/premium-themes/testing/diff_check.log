@@ -1,5 +1,0 @@
-diff_check.log
---------------
-Command: git diff --check
-Exit: 0
-Output: none (no whitespace errors)

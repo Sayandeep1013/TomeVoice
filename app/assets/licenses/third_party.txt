@@ -128,9 +128,3 @@ for TomeVoice (tools/scene_art.py):
 - Silver witch: John Atkinson Grimshaw, "A Moonlit Lane" (1874). Public
   domain.
 - Space, solar: NASA/SDO/AIA, a prominence eruption (2013). Public domain.
-- Gothic cathedral: Paul Vredeman de Vries, "Interior of a Gothic
-  Cathedral". Public domain.
-  https://commons.wikimedia.org/wiki/File:Paul_Vredeman_de_Vries_-_Interior_of_a_Gothic_Cathedral.jpg
-- Classic Renaissance: Anthonie Palamedesz., "Interior of a Church Built
-  in the Late-Renaissance Style" (SM 862). Public domain mark (PDM-owner).
-  https://commons.wikimedia.org/wiki/File:Interior_of_a_Church_Built_in_the_Late-Renaissance_Style_(SM_862).png
